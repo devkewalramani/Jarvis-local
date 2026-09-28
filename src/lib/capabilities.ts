@@ -22,6 +22,8 @@ export type Capabilities = {
   stt: boolean
   /** ElevenLabs text-to-speech is reachable via the bridge. */
   tts: boolean
+  /** 'local' when the bridge's voice service (Whisper/Kokoro/openWakeWord) is up. */
+  engine?: 'local' | 'browser'
 }
 
 /** Browser-only until the probe says otherwise. Safe default: the app works. */
@@ -56,8 +58,8 @@ export async function probeCapabilities(): Promise<Capabilities> {
       signal: AbortSignal.timeout(3000),
     })
     if (res.ok) {
-      const h = (await res.json()) as { stt?: boolean; tts?: boolean }
-      current = { stt: Boolean(h.stt), tts: Boolean(h.tts) }
+      const h = (await res.json()) as { stt?: boolean; tts?: boolean; engine?: 'local' | 'browser' }
+      current = { stt: Boolean(h.stt), tts: Boolean(h.tts), engine: h.engine }
     }
   } catch {
     // Bridge down or slow — stay on the browser engines rather than blocking
@@ -70,6 +72,7 @@ export async function probeCapabilities(): Promise<Capabilities> {
 /** A short human label for the HUD: what voice stack is actually in play. */
 export function engineLabel(): string {
   const c = current
+  if (c.engine === 'local' && c.stt && c.tts) return 'local voice'
   if (c.stt && c.tts) return 'ElevenLabs'
   if (c.tts) return 'ElevenLabs voice'
   // env.elevenKey is only meaningful in direct mode; harmless to mention.

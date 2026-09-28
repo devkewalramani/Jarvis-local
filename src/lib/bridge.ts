@@ -434,6 +434,10 @@ export async function ask(
             handlers.onText(msg.delta ?? '')
             break
 
+          case 'ack':
+            if (msg.text) handlers.onAck?.(msg.text)
+            break
+
           case 'tool':
             if (!msg.name) break
             tools.push(msg.name)

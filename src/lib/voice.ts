@@ -450,7 +450,9 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
     if (mode === 'deaf') return
     const t0 = performance.now()
     try {
-      const res = await fetch(`${BRIDGE_HTTP_URL}/stt`, {
+      // In wake mode the local service checks for "hey jarvis" with
+      // openWakeWord before transcribing, and drops the clip if it isn't there.
+      const res = await fetch(`${BRIDGE_HTTP_URL}/stt${mode === 'wake' ? '?mode=wake' : ''}`, {
         method: 'POST',
         headers: { 'content-type': blob.type || 'audio/webm' },
         body: blob,
@@ -467,7 +469,7 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       diag.lastError = ''
 
       if (!said) {
-        drop('nothing intelligible in the segment')
+        drop(mode === 'wake' ? 'no wake word (openWakeWord)' : 'nothing intelligible in the segment')
         return
       }
 

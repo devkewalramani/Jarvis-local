@@ -16,7 +16,9 @@
     "preview": "vite preview",
     "bridge": "env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL node bridge/server.mjs",
     "bridge:writes": "JARVIS_ALLOW_WRITES=1 node bridge/server.mjs",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "voice": "voice/.venv/bin/python -u voice/server.py",
+    "brains": "tail -n 30 logs/brain.log"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",

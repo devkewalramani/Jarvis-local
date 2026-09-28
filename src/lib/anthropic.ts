@@ -19,6 +19,8 @@ export type AskHandlers = {
   onText: (delta: string) => void
   /** Fires when Claude starts running a remote tool. */
   onTool: (name: string) => void
+  /** Spoken at once when the bridge routes a request to Claude, before any answer. */
+  onAck?: (text: string) => void
 }
 
 /** The stream for the turn in flight, so a barge-in can abort it. Without this

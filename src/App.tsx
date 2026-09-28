@@ -162,6 +162,14 @@ export default function App() {
           store.getState().appendToLastTurn(delta)
           spk.push(delta)
         },
+        // The bridge's acknowledgment for a Claude-routed request ("Drafting
+        // that now."). It counts as this turn's filler, so the tool filler
+        // below does not speak a second one.
+        onAck: (line) => {
+          if (stale() || filled || started) return
+          filled = true
+          spk.say(line)
+        },
         onTool: (name) => {
           if (stale()) return
           // Only claim the tooling phase while he has nothing to say yet.
