@@ -27,6 +27,7 @@ import time
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 import soundfile as sf
@@ -115,19 +116,21 @@ def transcribe(pcm):
     return " ".join(s.text.strip() for s in segments).strip()
 
 
-def stt(audio_bytes, mode):
+def stt(audio_bytes, mode, threshold=None):
+    """threshold: this request's wake word threshold (the menu's sensitivity), else the default."""
+    threshold = WAKE_THRESHOLD if threshold is None else threshold
     pcm = to_pcm(audio_bytes)
     if pcm.size < SR // 5:
         return {"text": "", "wake": False, "score": 0.0}
     score = None
     if mode == "wake":
         score = wake_score(pcm)
-        if score < WAKE_THRESHOLD:
-            return {"text": "", "wake": False, "score": round(score, 3)}
+        if score < threshold:
+            return {"text": "", "wake": False, "score": round(score, 3), "threshold": threshold}
     text = transcribe(pcm)
     if mode == "wake" and not WAKE_TEXT.search(text):
         text = f"Hey Jarvis, {text}".strip().rstrip(",")
-    return {"text": text, "wake": mode == "wake", "score": None if score is None else round(score, 3)}
+    return {"text": text, "wake": mode == "wake", "score": None if score is None else round(score, 3), "threshold": threshold}
 
 
 def wav_bytes(samples, rate):
@@ -190,9 +193,14 @@ class Handler(BaseHTTPRequestHandler):
         t0 = time.time()
         try:
             if self.path.startswith("/stt"):
-                mode = "wake" if "mode=wake" in self.path else "listen"
-                out = stt(self.body(25 * 1024 * 1024), mode)
-                log(f"stt {mode} {int((time.time() - t0) * 1000)}ms score={out['score']} {out['text'][:60]!r}")
+                q = parse_qs(urlparse(self.path).query)
+                mode = "wake" if q.get("mode", [""])[0] == "wake" else "listen"
+                try:  # kept to a sane range whatever the page sends
+                    threshold = min(0.95, max(0.1, float(q["threshold"][0])))
+                except (KeyError, ValueError):
+                    threshold = None
+                out = stt(self.body(25 * 1024 * 1024), mode, threshold)
+                log(f"stt {mode} {int((time.time() - t0) * 1000)}ms score={out['score']} threshold={out['threshold']} {out['text'][:60]!r}")
                 return self.reply(200, out)
             if self.path == "/tts":
                 text = (json.loads(self.body(64 * 1024) or b"{}").get("text") or "").strip()

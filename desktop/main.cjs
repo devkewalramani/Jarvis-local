@@ -44,6 +44,20 @@ let quitting = false
  * panel. The page styles itself from <html data-backdrop> (see preload.cjs).
  */
 const BACKDROPS = { clear: 'Clear', frosted: 'Frosted', dark: 'Dark' }
+
+/**
+ * Microphone sensitivity, from the menu bar icon, saved as plain numbers in
+ * ~/Library/Application Support/Jarvis/voice-settings.json so they can be
+ * edited by hand too (the menu shows "Custom" for any other value).
+ *   wakeThreshold  openWakeWord confidence needed to wake; lower wakes more easily
+ *   pauseMs        quiet gap, in ms, that ends what you are saying
+ * The page applies both at once; nothing needs a restart.
+ */
+const WAKE_LEVELS = { Low: 0.7, Medium: 0.5, High: 0.35 }
+const PAUSE_LEVELS = { Short: 600, Normal: 1000, Long: 1600 }
+const VOICE_DEFAULTS = { wakeThreshold: WAKE_LEVELS.Medium, pauseMs: PAUSE_LEVELS.Normal }
+const VOICE_FILE = () => path.join(app.getPath('userData'), 'voice-settings.json')
+let voice = { ...VOICE_DEFAULTS }
 let backdrop = 'frosted'
 
 /** To the console and to logs/desktop-app.log (there is no console when opened from Finder). */
@@ -431,6 +445,80 @@ function toggleWindow() {
   rebuildTrayMenu()
 }
 
+function loadVoiceSettings() {
+  try {
+    const s = JSON.parse(fs.readFileSync(VOICE_FILE(), 'utf8'))
+    const num = (v, lo, hi, d) => (Number.isFinite(v) && v >= lo && v <= hi ? v : d)
+    voice = {
+      wakeThreshold: num(s.wakeThreshold, 0.1, 0.95, VOICE_DEFAULTS.wakeThreshold),
+      pauseMs: num(s.pauseMs, 200, 5000, VOICE_DEFAULTS.pauseMs),
+    }
+  } catch {
+    voice = { ...VOICE_DEFAULTS }
+    saveVoiceSettings()
+  }
+}
+
+function saveVoiceSettings() {
+  try {
+    fs.writeFileSync(VOICE_FILE(), JSON.stringify(voice, null, 2) + '\n')
+  } catch (err) {
+    log('could not save voice settings:', err.message)
+  }
+}
+
+function setVoice(patch) {
+  voice = { ...voice, ...patch }
+  saveVoiceSettings()
+  win?.webContents.send('jarvis:voice-settings', voice)
+  log(`voice settings ${JSON.stringify(voice)}`)
+  rebuildTrayMenu()
+}
+
+ipcMain.on('jarvis:get-voice-settings', (e) => {
+  e.returnValue = voice
+})
+
+/** Menu label for a value: its level name, or "Custom" if edited by hand. */
+function levelName(levels, value) {
+  return Object.keys(levels).find((k) => levels[k] === value) ?? 'Custom'
+}
+
+function voiceMenu() {
+  const wakeName = levelName(WAKE_LEVELS, voice.wakeThreshold)
+  const pauseName = levelName(PAUSE_LEVELS, voice.pauseMs)
+  const radios = (levels, current, fmt, apply) => [
+    ...Object.entries(levels).map(([name, value]) => ({
+      label: `${name} (${fmt(value)})`,
+      type: 'radio',
+      checked: current === value,
+      click: () => apply(value),
+    })),
+    ...(levelName(levels, current) === 'Custom'
+      ? [{ label: `Custom (${fmt(current)})`, type: 'radio', checked: true, enabled: false }]
+      : []),
+  ]
+  return [
+    {
+      label: `Wake Word Sensitivity: ${wakeName} (${voice.wakeThreshold.toFixed(2)})`,
+      submenu: radios(WAKE_LEVELS, voice.wakeThreshold, (v) => v.toFixed(2), (v) => setVoice({ wakeThreshold: v })),
+    },
+    {
+      label: `End of Speech Pause: ${pauseName} (${(voice.pauseMs / 1000).toFixed(1)}s)`,
+      submenu: radios(PAUSE_LEVELS, voice.pauseMs, (v) => `${(v / 1000).toFixed(1)}s`, (v) => setVoice({ pauseMs: v })),
+    },
+    {
+      label: 'Test Mic (10 seconds)',
+      click: () => {
+        if (!win) return
+        win.show()
+        rebuildTrayMenu()
+        win.webContents.send('jarvis:mic-test', 10_000)
+      },
+    },
+  ]
+}
+
 function rebuildTrayMenu() {
   if (!tray || !win) return
   tray.setContextMenu(
@@ -454,6 +542,9 @@ function rebuildTrayMenu() {
           click: () => setBackdrop(mode),
         })),
       },
+      { type: 'separator' },
+      ...voiceMenu(),
+      { type: 'separator' },
       { label: 'Open in Browser', click: () => shell.openExternal(FACE_URL) },
       { type: 'separator' },
       { label: 'Quit Jarvis', accelerator: 'Cmd+Q', click: () => app.quit() },
@@ -483,6 +574,13 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     app.dock?.hide() // a menu bar app: no Dock icon
+    loadVoiceSettings()
+    // Hand edits to voice-settings.json apply without restarting.
+    fs.watchFile(VOICE_FILE(), { interval: 2000 }, () => {
+      const before = JSON.stringify(voice)
+      loadVoiceSettings()
+      if (JSON.stringify(voice) !== before) setVoice({})
+    })
     createTray()
     lockDownSession(session.defaultSession)
 

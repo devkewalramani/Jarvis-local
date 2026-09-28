@@ -7,7 +7,17 @@
 
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('jarvisDesktop', Object.freeze({ isDesktop: true }))
+contextBridge.exposeInMainWorld(
+  'jarvisDesktop',
+  Object.freeze({
+    isDesktop: true,
+    // Microphone sensitivity from the menu bar icon (src/lib/voiceSettings.ts).
+    getVoiceSettings: () => ipcRenderer.sendSync('jarvis:get-voice-settings'),
+    onVoiceSettings: (cb) => ipcRenderer.on('jarvis:voice-settings', (_e, s) => cb(s)),
+    // "Test mic": show the live level and wake word confidence (src/ui/MicTest.tsx).
+    onMicTest: (cb) => ipcRenderer.on('jarvis:mic-test', (_e, ms) => cb(ms)),
+  }),
+)
 
 // --- Backdrop: 'clear' | 'frosted' | 'dark' ---------------------------------
 

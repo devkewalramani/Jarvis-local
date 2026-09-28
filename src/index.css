@@ -1947,3 +1947,50 @@ html.desktop .rail-item.dim { opacity: 0.62; }
 html.desktop .status { font-size: 12px; }
 html.desktop .hud-bottom { opacity: 0.72; }
 html.desktop .log-user .log-text { opacity: 0.8; }
+
+/* -- Mic test (desktop menu: Test mic) -------------------------------- */
+.mic-test {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  z-index: 30;
+  width: min(420px, 86vw);
+  padding: 14px 18px 12px;
+  background: rgba(1, 6, 12, 0.86);
+  border: 1px solid color-mix(in srgb, var(--interface) 45%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--interface) 22%, transparent);
+  color: var(--interface);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+.mic-test-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
+.mic-test-label { font-size: 9px; letter-spacing: 0.3em; opacity: 0.8; margin: 8px 0 5px; }
+.mic-test-label b { font-weight: 600; opacity: 1; }
+.mic-test-mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; }
+.mic-test-dim { opacity: 0.55; }
+.mic-test-bar {
+  position: relative;
+  height: 8px;
+  background: color-mix(in srgb, var(--interface) 12%, transparent);
+}
+.mic-test-fill {
+  height: 100%;
+  background: var(--interface);
+  box-shadow: 0 0 8px var(--interface);
+  transition: width 90ms linear;
+}
+.mic-test-peak { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; opacity: 0.7; }
+.mic-test-trigger {
+  position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px;
+  background: #ffcf5a; box-shadow: 0 0 6px #ffcf5a;
+}
+.mic-test-score { font-size: 13px; }
+.mic-test-score .mic-test-mono { font-size: 20px; }
+.mic-test-ok { color: #7dffb2; font-weight: 600; }
+.mic-test-miss { color: #ff8a7a; font-weight: 600; }
+.mic-test-heard { margin-top: 6px; text-transform: none; letter-spacing: 0.04em; opacity: 0.8; }
+.mic-test-foot { margin-top: 10px; font-size: 9px; letter-spacing: 0.12em; opacity: 0.6; text-transform: none; }

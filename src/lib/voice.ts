@@ -3,6 +3,7 @@ import { getMic } from './audio'
 import { speakingNow, speakingSince } from './tts'
 import { startVad, type Vad } from './vad'
 import { caps } from './capabilities'
+import { voiceSettings } from './voiceSettings'
 
 /**
  * The voice loop.
@@ -361,6 +362,25 @@ export const diag = {
   restarts: 0,
   /** Milliseconds the last transcription round-trip took. */
   idleMs: 0,
+  /** openWakeWord confidence for the last clip scored, and the threshold it met or missed. */
+  wakeScore: null as number | null,
+  wakeThreshold: null as number | null,
+  wakeScoreAt: 0,
+  /** Mic test (desktop menu): until this time, clips are scored but nothing wakes. */
+  testUntil: 0,
+  testHeard: '',
+  /** Live detector internals: loudness, room floor, and the trigger level. */
+  meter: null as null | (() => { energy: number; floor: number; threshold: number; speaking: boolean }),
+}
+
+/** True during a mic test, when clips are scored but never acted on. */
+export const micTesting = () => Date.now() < diag.testUntil
+
+/** Start a mic test: for `ms`, score every clip for the wake word and act on none. */
+export function startMicTest(ms: number) {
+  diag.testUntil = Date.now() + ms
+  diag.wakeScore = null
+  diag.testHeard = ''
 }
 
 /** Record why a transcript went nowhere. Silence always has a reason; this is
@@ -447,12 +467,17 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
    */
   const transcribe = async (blob: Blob) => {
     const mode = h.mode()
-    if (mode === 'deaf') return
+    const testing = micTesting()
+    if (mode === 'deaf' && !testing) return
     const t0 = performance.now()
     try {
       // In wake mode the local service checks for "hey jarvis" with
       // openWakeWord before transcribing, and drops the clip if it isn't there.
-      const res = await fetch(`${BRIDGE_HTTP_URL}/stt${mode === 'wake' ? '?mode=wake' : ''}`, {
+      // The threshold is the menu's wake word sensitivity. A mic test always
+      // asks for a score.
+      const wake = mode === 'wake' || testing
+      const query = wake ? `?mode=wake&threshold=${voiceSettings().wakeThreshold}` : ''
+      const res = await fetch(`${BRIDGE_HTTP_URL}/stt${query}`, {
         method: 'POST',
         headers: { 'content-type': blob.type || 'audio/webm' },
         body: blob,
@@ -464,9 +489,23 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
         drop(`transcription failed (${res.status})`)
         return
       }
-      const { text } = (await res.json()) as { text?: string }
+      const { text, score, threshold } = (await res.json()) as {
+        text?: string
+        score?: number | null
+        threshold?: number | null
+      }
       const said = (text ?? '').trim()
       diag.lastError = ''
+      if (typeof score === 'number') {
+        diag.wakeScore = score
+        diag.wakeThreshold = threshold ?? null
+        diag.wakeScoreAt = Date.now()
+      }
+      // A mic test shows what was heard and acts on nothing.
+      if (testing) {
+        diag.testHeard = said
+        return
+      }
 
       if (!said) {
         drop(mode === 'wake' ? 'no wake word (openWakeWord)' : 'nothing intelligible in the segment')
@@ -518,6 +557,8 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
       draining = false
     }
   }
+
+  diag.meter = () => vad?.meter() ?? { energy: 0, floor: 0, threshold: 0, speaking: false }
 
   vad = await startVad({
     onStart: () => {

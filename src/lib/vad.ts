@@ -1,4 +1,5 @@
 import { getMic } from './audio'
+import { voiceSettings } from './voiceSettings'
 
 /**
  * Voice-activity detection and segment capture.
@@ -74,8 +75,11 @@ const START_MS = 110
  * energy (see makeAssembler in voice.ts), so this can go back to being what it
  * should always have been — a cheap "have they stopped making noise" — and the
  * shorter window gets the transcript moving sooner.
+ *
+ * Now the "End of speech pause" in the desktop app's menu (voiceSettings.ts);
+ * 1000 ms by default, 650 ms before that setting existed.
  */
-const SILENCE_MS = 650
+const silenceMs = () => voiceSettings().pauseMs
 /** Nobody speaks one segment for this long; cut it and transcribe what we have. */
 const MAX_MS = 20000
 
@@ -243,7 +247,7 @@ export async function startVad(h: VadHandlers): Promise<Vad> {
       if (smoothEnergy > release) lastLoud = now
       const quietFor = now - lastLoud
       const runFor = now - speechStartedAt
-      if (quietFor >= SILENCE_MS || runFor >= MAX_MS) {
+      if (quietFor >= silenceMs() || runFor >= MAX_MS) {
         armedAt = 0
         endSegment()
       }

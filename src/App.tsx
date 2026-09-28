@@ -4,6 +4,7 @@ import { Hud } from './ui/Hud'
 import { Boot } from './ui/Boot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
+import { MicTest } from './ui/MicTest'
 import { useStore } from './store'
 import { startVoice, type Voice, type VoiceMode } from './lib/voice'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
@@ -709,6 +710,7 @@ export default function App() {
       <Hud />
       <Boot />
       <Diagnostics />
+      <MicTest />
       <Ignition onStart={() => void powerOn()} />
     </>
   )

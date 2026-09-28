@@ -983,9 +983,14 @@ const handleRequest = async (req, res) => {
     return proxyVoice(req, res, cors, '/tts', 'application/json', 64 * 1024)
   }
   if (req.method === 'POST' && (req.url === '/stt' || req.url?.startsWith('/stt?'))) {
-    const mode = new URL(req.url, 'http://x').searchParams.get('mode') === 'wake' ? 'wake' : 'listen'
+    const params = new URL(req.url, 'http://x').searchParams
+    const mode = params.get('mode') === 'wake' ? 'wake' : 'listen'
+    // The wake word threshold chosen in the desktop app's menu, passed through
+    // as a number only; the voice service clamps it to a safe range.
+    const threshold = Number(params.get('threshold'))
+    const extra = Number.isFinite(threshold) && threshold > 0 ? `&threshold=${threshold}` : ''
     const type = req.headers['content-type'] || 'audio/webm'
-    return proxyVoice(req, res, cors, `/stt?mode=${mode}`, type, 25 * 1024 * 1024)
+    return proxyVoice(req, res, cors, `/stt?mode=${mode}${extra}`, type, 25 * 1024 * 1024)
   }
   res.writeHead(404, cors)
   res.end()
