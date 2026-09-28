@@ -20,6 +20,8 @@ import { BRIDGE_WS_URL } from '../config'
  *  bridge build should be ignored, not crash the turn. */
 type Frame = {
   type?: string
+  /** On 'done': the reply was to speech that wasn't a request (see bridge). */
+  notRequest?: boolean
   delta?: string
   name?: string
   text?: string
@@ -316,7 +318,8 @@ let pending: { finish: (fallback?: string) => void } | null = null
 export async function ask(
   prompt: string,
   handlers: AskHandlers,
-): Promise<{ text: string; tools: string[] }> {
+  wake: { score: number; threshold: number | null } | null = null,
+): Promise<{ text: string; tools: string[]; notRequest: boolean }> {
   /**
    * A new question supersedes the one in flight.
    *
@@ -361,7 +364,7 @@ export async function ask(
   // Barged in on before the socket was even up. Nothing was ever asked.
   if (cancelledWhileDialling) {
     pending = null
-    return { text: '', tools: [] }
+    return { text: '', tools: [], notRequest: false }
   }
 
   const id = `a${++askSeq}`
@@ -381,12 +384,13 @@ export async function ask(
       ws.removeEventListener('error', onError)
     }
 
+    let notRequest = false
     const finish = (fallback = '') => {
       if (done) return
       cleanup()
       // Prefer the streamed text; fall back to the final result if this build
       // didn't emit deltas.
-      resolve({ text: (text || fallback).trim(), tools })
+      resolve({ text: (text || fallback).trim(), tools, notRequest })
     }
 
     const fail = (err: Error) => {
@@ -445,6 +449,8 @@ export async function ask(
             break
 
           case 'done':
+            // The bridge flags a reply to speech that wasn't a request.
+            notRequest = msg.notRequest === true
             finish(msg.text ?? '')
             break
 
@@ -471,7 +477,10 @@ export async function ask(
     arm()
 
     try {
-      ws.send(JSON.stringify({ type: 'ask', text: prompt, id }))
+      ws.send(JSON.stringify({
+        type: 'ask', text: prompt, id,
+        ...(wake ? { wakeScore: wake.score, wakeThreshold: wake.threshold } : {}),
+      }))
     } catch (err) {
       // The socket can go into CLOSING between connect() resolving and here.
       fail(err instanceof Error ? err : new Error(String(err)))

@@ -6,7 +6,8 @@ import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { MicTest } from './ui/MicTest'
 import { useStore } from './store'
-import { startVoice, type Voice, type VoiceMode } from './lib/voice'
+import { startVoice, takeWake, type Voice, type VoiceMode } from './lib/voice'
+import { DESKTOP } from './lib/desktop'
 import { createSpeaker, cycleVoice, currentVoiceName } from './lib/tts'
 import * as sfx from './lib/sfx'
 import * as music from './lib/music'
@@ -135,8 +136,11 @@ export default function App() {
     s.clearPanels()
     s.clearBlades()
     s.setCaption('')
-    s.pushTurn({ id: newId(), role: 'user', text: said })
+    const userTurnId = newId()
+    s.pushTurn({ id: userTurnId, role: 'user', text: said })
     s.setPhase('thinking')
+    // The wake word confidence that started this turn, if a wake did.
+    const wake = takeWake()
 
     const spk = createSpeaker()
     speaker.current = spk
@@ -148,7 +152,7 @@ export default function App() {
     let filled = false
 
     try {
-      const { text } = await ask(said, history.current, {
+      const { text, notRequest } = await ask(said, history.current, {
         onText: (delta) => {
           if (stale()) return
           if (!started) {
@@ -189,9 +193,17 @@ export default function App() {
             spk.say(forTool(name))
           }
         },
-      })
+      }, wake)
 
       if (stale()) return
+
+      // Speech that wasn't a request: keep Jarvis's reply, drop the words he
+      // overheard, and (if a wake started it) record the wake's confidence so
+      // the menu can suggest a sensitivity above it.
+      if (notRequest) {
+        store.getState().removeTurn(userTurnId)
+        if (wake) DESKTOP?.reportFalseWake?.(wake)
+      }
 
       // The bridge keeps conversation state in its own session, so history is
       // only threaded through on the direct path.

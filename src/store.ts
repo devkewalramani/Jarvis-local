@@ -259,6 +259,7 @@ type State = {
   setError: (e: string | null) => void
   setConnected: (c: string[]) => void
   pushTurn: (t: Turn) => void
+  removeTurn: (id: string) => void
   appendToLastTurn: (text: string) => void
 
   applyUi: (patch: UiPatch) => void
@@ -353,6 +354,7 @@ export const useStore = create<State>((set) => ({
   setError: (error) => set({ error }),
   setConnected: (connected) => set({ connected }),
   pushTurn: (turn) => set((s) => ({ turns: [...s.turns.slice(-40), turn] })),
+  removeTurn: (id) => set((s) => ({ turns: s.turns.filter((t) => t.id !== id) })),
   appendToLastTurn: (text) =>
     set((s) => {
       const turns = [...s.turns]

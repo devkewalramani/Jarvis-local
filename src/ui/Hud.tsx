@@ -188,6 +188,17 @@ export function Hud() {
   const phase = useStore((s) => s.phase)
   const caption = useStore((s) => s.caption)
   const turns = useStore((s) => s.turns)
+
+  // The transcript fades out after 20 seconds with nothing happening, and
+  // comes back with the next turn. Never while he is listening or answering.
+  const [logFaded, setLogFaded] = useState(false)
+  useEffect(() => {
+    setLogFaded(false)
+    // Waiting (dormant, or listening for a follow up) counts as quiet.
+    if (phase !== 'dormant' && phase !== 'offline' && phase !== 'listening') return
+    const id = window.setTimeout(() => setLogFaded(true), 20_000)
+    return () => window.clearTimeout(id)
+  }, [turns, phase])
   const activeTool = useStore((s) => s.activeTool)
   const connected = useStore((s) => s.connected)
   const systems = useSystems(connected)
@@ -296,7 +307,7 @@ export function Hud() {
 
       {/* Conversation log: the last three turns below the reactor, older ones fainter */}
       {ui.chrome.transcript && (
-        <div className="log">
+        <div className={`log${logFaded ? ' log-faded' : ''}`}>
           <AnimatePresence initial={false}>
             {turns.slice(-3).map((t, i, shown) => (
               <motion.div

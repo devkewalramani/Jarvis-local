@@ -10,6 +10,8 @@ type DesktopBridge = {
   getVoiceSettings?: () => VoiceSettings
   onVoiceSettings?: (cb: (s: VoiceSettings) => void) => void
   onMicTest?: (cb: (ms: number) => void) => void
+  /** A wake whose speech turned out not to be a request, for the menu's list. */
+  reportFalseWake?: (w: { score: number; threshold: number | null }) => void
 }
 
 export const DESKTOP: DesktopBridge | undefined = (

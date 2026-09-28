@@ -28,9 +28,10 @@ export async function ask(
   prompt: string,
   history: Msg[],
   handlers: AskHandlers,
-): Promise<{ text: string; tools: string[] }> {
+  wake: { score: number; threshold: number | null } | null = null,
+): Promise<{ text: string; tools: string[]; notRequest?: boolean }> {
   return usingBridge
-    ? bridge.ask(prompt, handlers)
+    ? bridge.ask(prompt, handlers, wake)
     : direct.ask([...history, { role: 'user', content: prompt }], handlers)
 }
 

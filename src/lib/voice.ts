@@ -373,6 +373,19 @@ export const diag = {
   meter: null as null | (() => { energy: number; floor: number; threshold: number; speaking: boolean }),
 }
 
+/** The wake word confidence of the most recent wake, until a turn claims it. */
+let pendingWake: { score: number; threshold: number | null; at: number } | null = null
+
+/**
+ * Hand the last wake's confidence to the turn it started (once). Follow ups in
+ * an open conversation had no wake of their own, so they get null.
+ */
+export function takeWake(): { score: number; threshold: number | null } | null {
+  const w = pendingWake
+  pendingWake = null
+  return w && Date.now() - w.at < 60_000 ? { score: w.score, threshold: w.threshold } : null
+}
+
 /** True during a mic test, when clips are scored but never acted on. */
 export const micTesting = () => Date.now() < diag.testUntil
 
@@ -528,6 +541,9 @@ async function startElevenVoice(h: VoiceHandlers): Promise<Voice> {
           diag.wakes++
           diag.dropped = ''
           diag.accepted++
+          if (typeof score === 'number') {
+            pendingWake = { score, threshold: threshold ?? null, at: Date.now() }
+          }
           h.onWake(afterWake(said))
         } else {
           drop(`heard "${said.slice(-40)}" — not his name`)

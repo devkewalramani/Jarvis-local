@@ -321,6 +321,13 @@ function decideTool(name, brain = 'claude') {
   return ALLOW_WRITES
 }
 
+/**
+ * The fixed reply for speech that wasn't a request (see the persona below).
+ * The bridge flags such turns so the page can hide what was overheard, and
+ * logs them as false wakes with the wake word confidence that started them.
+ */
+const NOT_A_REQUEST = /^\s*nothing actionable there\b/i
+
 const SYSTEM_PROMPT = `You are JARVIS. You are speaking out loud to one person.
 
 LENGTH. Two sentences is the ceiling in conversation; the median is under twelve
@@ -360,6 +367,17 @@ NEVER.
 - Never refuse. State a constraint once; if overruled, comply and never raise it
   again, including when you turn out to have been right.
 - Never repeat yourself if ignored. Say it once and stop.
+
+OVERHEARD SPEECH. This rule overrides every other one, "never refuse" and
+"Very good, sir" included. The microphone is always on and the wake word
+sometimes fires on background conversation, so much of what reaches you was
+never meant for you. If what you heard is not a clear request or question for
+you (a remark to someone else, television or radio, small talk, a fragment,
+someone else's plans) reply with exactly these four words and nothing else,
+using no tools: Nothing actionable there, sir.
+Examples: "Did you remember to feed the dog?" "The game starts at seven."
+"I'll call you back after lunch." A real request asks you to find, check,
+show, draft, remind, explain or do something.
 - Never resume an interrupted thought. Never say "as I was saying".
 - No stated feelings, wants or preferences.
 
@@ -1465,6 +1483,7 @@ wss.on('connection', (socket) => {
                   type: 'done',
                   text: msg.result ?? '',
                   costUsd: msg.total_cost_usd ?? null,
+                  notRequest: NOT_A_REQUEST.test(msg.result ?? ''),
                 })
               } else {
                 console.error(
@@ -1493,7 +1512,13 @@ wss.on('connection', (socket) => {
                   // SDK's API-price estimate, logged for interest only.
                   apiEquivUsd: local ? 0 : (msg.total_cost_usd ?? null),
                   answer: String(msg.result ?? '').slice(0, 300),
+                  ...(turnLog.wake ? { wakeScore: turnLog.wake.score, wakeThreshold: turnLog.wake.threshold } : {}),
                 })
+                // A wake that led nowhere: logged with its confidence, so the
+                // wake word sensitivity can be set above it.
+                if (turnLog.wake && NOT_A_REQUEST.test(msg.result ?? '')) {
+                  logBrain({ event: 'false_wake', brain: kind, wakeScore: turnLog.wake.score, wakeThreshold: turnLog.wake.threshold })
+                }
                 turnLog = null
               }
               // Whatever was waiting on this turn to finish can go now. This is
@@ -1577,11 +1602,15 @@ wss.on('connection', (socket) => {
        */
       const text = msg.text
       const id = typeof msg.id === 'string' ? msg.id : null
+      // The wake word confidence that started this turn, if it was a wake.
+      const wake = typeof msg.wakeScore === 'number'
+        ? { score: msg.wakeScore, threshold: typeof msg.wakeThreshold === 'number' ? msg.wakeThreshold : null }
+        : null
       void settling.then(() => {
         answering = id
         // Pick the brain for this one request. See bridge/routing.json.
         const { brain, rule, ack, say } = route(text)
-        logBrain({ event: 'route', brain, rule, text, ...(ack ? { ack } : {}) })
+        logBrain({ event: 'route', brain, rule, text, ...(ack ? { ack } : {}), ...(wake ? { wakeScore: wake.score } : {}) })
         // A refusal to send is answered here, word for word, with no model.
         if (brain === 'canned') {
           sendTurn({ type: 'text', delta: say })
@@ -1590,7 +1619,7 @@ wss.on('connection', (socket) => {
           return
         }
         activeBrain = brain
-        turnLog = { rule, text, started: Date.now(), tools: [], denied: [] }
+        turnLog = { rule, text, started: Date.now(), tools: [], denied: [], wake }
         // Claude takes seconds; say something now rather than sit in silence.
         if (ack) sendTurn({ type: 'ack', text: ack })
         ;(brains[brain] ?? openBrain(brain)).box.push(withNow(text, brain))

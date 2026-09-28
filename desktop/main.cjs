@@ -60,6 +60,15 @@ const PAUSE_LEVELS = { Short: 600, Normal: 1000, Long: 1600 }
 const VOICE_DEFAULTS = { wakeThreshold: WAKE_LEVELS.Medium, pauseMs: PAUSE_LEVELS.Normal }
 const VOICE_FILE = () => path.join(app.getPath('userData'), 'voice-settings.json')
 let voice = { ...VOICE_DEFAULTS }
+
+/**
+ * Recent false wakes: the wake word fired, but what followed wasn't a request
+ * (Jarvis answered "Nothing actionable there"). Kept with their confidence in
+ * ~/Library/Application Support/Jarvis/false-wakes.json, newest first, so the
+ * menu can suggest a sensitivity that would have ignored them.
+ */
+const FALSE_WAKES_FILE = () => path.join(app.getPath('userData'), 'false-wakes.json')
+let falseWakes = []
 let backdrop = 'clear'   // the default: no panel; Frosted and Dark are in the menu
 
 /** To the console and to logs/desktop-app.log (there is no console when opened from Finder). */
@@ -503,6 +512,56 @@ function setVoice(patch) {
   rebuildTrayMenu()
 }
 
+function loadFalseWakes() {
+  try {
+    const list = JSON.parse(fs.readFileSync(FALSE_WAKES_FILE(), 'utf8'))
+    falseWakes = Array.isArray(list) ? list.slice(0, 10) : []
+  } catch {
+    falseWakes = []
+  }
+}
+
+function saveFalseWakes() {
+  try {
+    fs.writeFileSync(FALSE_WAKES_FILE(), JSON.stringify(falseWakes, null, 2) + '\n')
+  } catch (err) {
+    log('could not save false wakes:', err.message)
+  }
+}
+
+ipcMain.on('jarvis:false-wake', (_e, w) => {
+  if (!Number.isFinite(w?.score)) return
+  const threshold = Number.isFinite(w.threshold) ? w.threshold : voice.wakeThreshold
+  falseWakes = [{ at: new Date().toISOString(), score: w.score, threshold }, ...falseWakes].slice(0, 10)
+  saveFalseWakes()
+  log(`false wake: confidence ${w.score.toFixed(3)} (threshold ${threshold})`)
+  rebuildTrayMenu()
+})
+
+/** The false wakes list, with a suggestion: the most sensitive level above them all. */
+function falseWakeMenu() {
+  if (!falseWakes.length) return [{ label: 'None yet', enabled: false }]
+  const time = (iso) => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+  const items = falseWakes.map((f) => ({
+    label: `${time(f.at)}  ·  confidence ${f.score.toFixed(2)}  (needed ${Number(f.threshold).toFixed(2)})`,
+    enabled: false,
+  }))
+  const highest = Math.max(...falseWakes.slice(0, 5).map((f) => f.score))
+  const [name, value] =
+    Object.entries(WAKE_LEVELS).sort((a, b) => a[1] - b[1]).find(([, v]) => v > highest + 0.02) ?? []
+  const suggestion = !name
+    ? { label: `Highest was ${highest.toFixed(2)}: sounded like a real "Hey Jarvis"; sensitivity can't filter it`, enabled: false }
+    : value === voice.wakeThreshold
+      ? { label: `${name} (${value.toFixed(2)}) is already above these`, enabled: false }
+      : { label: `Set Sensitivity to ${name} (${value.toFixed(2)}): above the last ${Math.min(5, falseWakes.length)}`, click: () => setVoice({ wakeThreshold: value }) }
+  return [
+    ...items,
+    { type: 'separator' },
+    suggestion,
+    { label: 'Clear List', click: () => { falseWakes = []; saveFalseWakes(); rebuildTrayMenu() } },
+  ]
+}
+
 ipcMain.on('jarvis:get-voice-settings', (e) => {
   e.returnValue = voice
 })
@@ -535,6 +594,7 @@ function voiceMenu() {
       label: `End of Speech Pause: ${pauseName} (${(voice.pauseMs / 1000).toFixed(1)}s)`,
       submenu: radios(PAUSE_LEVELS, voice.pauseMs, (v) => `${(v / 1000).toFixed(1)}s`, (v) => setVoice({ pauseMs: v })),
     },
+    { label: `Recent False Wakes (${falseWakes.length})`, submenu: falseWakeMenu() },
     {
       label: 'Test Mic (10 seconds)',
       click: () => {
@@ -603,6 +663,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     app.dock?.hide() // a menu bar app: no Dock icon
     loadVoiceSettings()
+    loadFalseWakes()
     // Hand edits to voice-settings.json apply without restarting.
     fs.watchFile(VOICE_FILE(), { interval: 2000 }, () => {
       const before = JSON.stringify(voice)

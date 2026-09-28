@@ -290,6 +290,8 @@ body::after {
   text-transform: none;
   letter-spacing: 0.01em;
 }
+.log { transition: opacity 1.2s ease; }
+.log.log-faded { opacity: 0; }
 .log-text {
   min-width: 0;
   overflow: hidden;
@@ -2056,3 +2058,7 @@ html.desktop[data-backdrop='clear'] .brand-mark {
 .mic-test-miss { color: #ff8a7a; font-weight: 600; }
 .mic-test-heard { margin-top: 6px; text-transform: none; letter-spacing: 0.04em; opacity: 0.8; }
 .mic-test-foot { margin-top: 10px; font-size: 9px; letter-spacing: 0.12em; opacity: 0.6; text-transform: none; }
+
+/* Clear backdrop: no corner brackets, so the window has no visible edge.
+   Frosted and Dark keep them. */
+html.desktop[data-backdrop='clear'] .corner { display: none; }
