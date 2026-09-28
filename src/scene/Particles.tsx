@@ -10,8 +10,8 @@ import { IS_DESKTOP } from '../lib/desktop'
  */
 
 // In the desktop app the cloud floats over the user's wallpaper, where 4000
-// points read as noise; half as many, dimmer, keeps the reactor the focus.
-const COUNT = IS_DESKTOP ? 2000 : 4000
+// points read as noise; a quarter as many, dimmer, keeps the reactor the focus.
+const COUNT = IS_DESKTOP ? 1000 : 4000
 const DUST_BRIGHTNESS = IS_DESKTOP ? 0.55 : 1
 
 const vertex = /* glsl */ `

@@ -85,7 +85,7 @@ meeting":
   their domain (set in `.env`).
 
 **A matching desktop theme.** `desktop-theme/` makes the rest of macOS look
-like the HUD: a slow reactor wallpaper, desktop widgets for time, meetings,
+like the HUD: a dim grid and particle wallpaper, desktop widgets for time, meetings,
 unread mail, weather and system load, a cyan glow on the focused window, and a
 menu bar with a Jarvis status dot. It is optional, uses about 4.5% of one CPU
 core, and `desktop-theme/restore.sh` puts the default look back. See

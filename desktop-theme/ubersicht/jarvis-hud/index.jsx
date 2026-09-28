@@ -43,10 +43,12 @@ const panel = css`
   &::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
   &::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
 `
+// Secondary text is one size step up and about 20% brighter than the first
+// version, for readability over the wallpaper.
 const label = css`
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.34em;
-  opacity: 0.72;
+  opacity: 0.86;
   margin-bottom: 9px;
 `
 const mono = css`
@@ -60,7 +62,7 @@ const row = css`
   font-size: 12px;
   padding: 3px 0;
 `
-const dim = css`opacity: 0.55;`
+const dim = css`opacity: 0.66;`
 const bar = (pct) => css`
   height: 3px;
   margin: 4px 0 8px;
@@ -104,7 +106,7 @@ export const render = ({ output, error }) => {
 
       <div className={panel}>
         <div className={label}>Next meetings today</div>
-        {(d.meetings ?? []).length === 0 && <div className={`${row} ${dim}`}>Nothing else today</div>}
+        {(d.meetings ?? []).length === 0 && <div className={`${row} ${dim}`} style={{ fontSize: 13 }}>Nothing else today</div>}
         {(d.meetings ?? []).map((m, i) => (
           <div className={row} key={i}>
             <span style={{ textTransform: 'none', letterSpacing: '0.04em', maxWidth: 360, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{m.title}</span>

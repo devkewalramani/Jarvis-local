@@ -105,6 +105,7 @@ body::after {
   align-items: center;
   gap: 10px;
   font-size: 10px;
+  white-space: nowrap;  /* one line, always */
   /* The header is space-between, so with the wordmark hidden the status line
      would slide to the left edge on its own. Claiming the free space keeps it
      pinned right whether or not the brand is there — and with both present it
@@ -152,7 +153,22 @@ body::after {
   align-items: center;
   gap: 8px;
   opacity: 0.82;
+  white-space: nowrap;
 }
+/* Systems list: a live dot per system, filled when it is up. */
+.sys-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  flex: 0 0 auto;
+}
+.sys-dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+.rail-item.sys-off { opacity: 0.5; }
 .rail-item.dim { opacity: 0.3; }
 .rail-item.mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em; }
 
@@ -254,17 +270,31 @@ body::after {
 
 /* Conversation log */
 
+/* Below the reactor, never over it. Measured in the desktop app: the outer
+   ring ends 31.8% of the window height below the centre and its glow 33.4%,
+   so the log starts at 35% and ends above the live caption. Three one-line
+   entries, newest at the bottom. (A ui_reactor scale above 1 grows the rings
+   past this line.) */
 .log {
   position: absolute;
   left: 50%;
-  bottom: 132px;
+  top: calc(50% + 35vh);
+  bottom: 118px;
   transform: translateX(-50%);
   width: min(760px, 68vw);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  justify-content: flex-end;
+  overflow: hidden;
+  gap: 6px;
   text-transform: none;
   letter-spacing: 0.01em;
+}
+.log-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .log-line {
@@ -272,7 +302,8 @@ body::after {
   gap: 14px;
   align-items: baseline;
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.45;
+  min-width: 0;
 }
 
 .log-who {
@@ -1940,13 +1971,17 @@ html.desktop .brand-mark {
     0 0 8px rgba(0, 0, 0, 0.7),
     0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
 }
-html.desktop .brand-sub { opacity: 0.78; }
-html.desktop .rail-title { opacity: 0.8; font-size: 9px; }
-html.desktop .rail-item { opacity: 1; }
-html.desktop .rail-item.dim { opacity: 0.62; }
+/* Secondary text: one size step up and about 20% brighter than before. */
+html.desktop .brand-sub { opacity: 0.94; font-size: 10px; }
+html.desktop .rail-title { opacity: 0.96; font-size: 10px; }
+html.desktop .rail-item { opacity: 1; font-size: 11px; }
+html.desktop .rail-item.dim,
+html.desktop .rail-item.sys-off { opacity: 0.74; }
 html.desktop .status { font-size: 12px; }
-html.desktop .hud-bottom { opacity: 0.72; }
-html.desktop .log-user .log-text { opacity: 0.8; }
+html.desktop .hud-bottom { opacity: 0.86; font-size: 10px; }
+html.desktop .hud-bottom kbd { font-size: 10px; }
+html.desktop .log-who { opacity: 0.6; font-size: 9px; }
+html.desktop .log-user .log-text { opacity: 0.96; }
 
 /* -- Mic test (desktop menu: Test mic) -------------------------------- */
 .mic-test {

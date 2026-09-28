@@ -7,7 +7,7 @@ undone by one command.
 
 | Piece | What you get | Tool | Files |
 |---|---|---|---|
-| Wallpaper | Slow reactor rings, faint grid, sparse particles | [Plash](https://sindresorhus.com/plash) | `wallpaper/` |
+| Wallpaper | A faint grid and sparse drifting particles; the Jarvis window is the focal point | [Plash](https://sindresorhus.com/plash) | `wallpaper/` |
 | Desktop HUD | Time and date, today's next three meetings, unread mail per account, weather, CPU and memory | [Übersicht](https://tracesof.net/uebersicht/) | `ubersicht/jarvis-hud/` |
 | Window glow | Soft cyan glow on the focused window only | [JankyBorders](https://github.com/FelixKratz/JankyBorders) | `borders/` |
 | Menu bar | Jarvis status dot, front app, Wi Fi, battery, time | [SketchyBar](https://github.com/FelixKratz/SketchyBar) | `sketchybar/` |
@@ -15,7 +15,7 @@ undone by one command.
 ## How it stays light
 
 * **Wallpaper.** It draws 12 frames a second, not 60. The grid and vignette are
-  drawn once, and only the rings and about 40 particles move. It stops while
+  drawn once, and only about 40 particles move. It stops while
   hidden or with "reduce motion" on, and Plash's "Deactivate while on battery"
   stops it entirely on battery.
 * **HUD.** It refreshes every 30 seconds, and the weather is cached for 15
@@ -118,8 +118,8 @@ Your normal wallpaper comes back as soon as Plash quits.
 
 * **HUD position:** `top`, `right` and `width` at the top of
   `ubersicht/jarvis-hud/index.jsx`. Keep it clear of the Jarvis app window.
-* **Wallpaper:** the reactor's position, size, speed and brightness are in
-  `CONFIG` at the top of `wallpaper/index.html`.
+* **Wallpaper:** grid spacing, particle count and brightness are in `CONFIG`
+  at the top of `wallpaper/index.html`.
 * **Menu bar:** items and colours are in `sketchybar/sketchybarrc`; each item's
   script is in `sketchybar/plugins/`. The Jarvis dot checks the bridge at
   `http://127.0.0.1:8787/health` every ten seconds.

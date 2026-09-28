@@ -16,7 +16,7 @@
  */
 
 import {
-  assertNoApiKey, claudeEnv, localEnv, LOCAL_MODEL, logBrain, route,
+  assertNoApiKey, claudeEnv, localEnv, LOCAL_MODEL, LOCAL_URL, logBrain, route,
   thunderbirdAllows, thunderbirdDisallowed, granolaAllows, fixCalendarInput, localiseTimesHook, scopeReplyDraft, reviewReplyInput,
 } from './brains.mjs'
 import { WebSocketServer } from 'ws'
@@ -581,6 +581,27 @@ function withNow(text, brain) {
  */
 const VOICE_URL = process.env.JARVIS_VOICE_URL ?? 'http://127.0.0.1:8790'
 
+/**
+ * Whether each brain can answer, for the HUD's systems list. The local model
+ * counts as up when the Jarvis Ollama answers and has the model; Claude is up
+ * whenever this bridge is, since it only starts on the subscription login.
+ * Cached briefly so the HUD's polling costs nothing.
+ */
+let brainCache = { at: 0, value: null }
+async function brainHealth() {
+  if (Date.now() - brainCache.at < 15_000 && brainCache.value) return brainCache.value
+  let local = false
+  try {
+    const res = await fetch(`${LOCAL_URL}/api/tags`, { signal: AbortSignal.timeout(1500) })
+    const tags = res.ok ? await res.json() : null
+    local = Boolean(tags?.models?.some((m) => m.name === LOCAL_MODEL))
+  } catch {
+    local = false
+  }
+  brainCache = { at: Date.now(), value: { local, claude: true } }
+  return brainCache.value
+}
+
 async function voiceHealth() {
   try {
     const res = await fetch(`${VOICE_URL}/health`, { signal: AbortSignal.timeout(1500) })
@@ -844,7 +865,7 @@ const handleRequest = async (req, res) => {
     // The browser reads this once at boot to decide which voice engine to use.
     // Both flags track the local voice service: up, and the page records and
     // speaks through it; down, and it falls back to the browser's own speech.
-    const voice = await voiceHealth()
+    const [voice, brains] = await Promise.all([voiceHealth(), brainHealth()])
     res.writeHead(200, { ...cors, 'content-type': 'application/json' })
     return res.end(
       JSON.stringify({
@@ -852,6 +873,7 @@ const handleRequest = async (req, res) => {
         tts: Boolean(voice?.tts),
         stt: Boolean(voice?.stt),
         engine: voice ? 'local' : 'browser',
+        brains,
       }),
     )
   }

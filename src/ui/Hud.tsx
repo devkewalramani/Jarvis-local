@@ -6,6 +6,7 @@ import { BladeSweep, Blades } from './Blades'
 import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
+import { BRIDGE_HTTP_URL } from '../config'
 
 const statusText: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -146,12 +147,50 @@ function DecodeText({ text }: { text: string }) {
 
 /* --------------------------------------------------------------------- hud */
 
+type Health = { engine?: string; brains?: { local?: boolean; claude?: boolean } }
+
+/**
+ * The systems list, in plain words with a live dot each. Mail, Calendar and
+ * Meetings follow the MCP servers the bridge reports (thunderbird, granola);
+ * Voice, Local model and Claude follow the bridge's /health, polled gently.
+ */
+function useSystems(connected: string[]) {
+  const [health, setHealth] = useState<Health | null>(null)
+  useEffect(() => {
+    let alive = true
+    const poll = async () => {
+      try {
+        const res = await fetch(`${BRIDGE_HTTP_URL}/health`, { signal: AbortSignal.timeout(3000) })
+        if (alive) setHealth(res.ok ? ((await res.json()) as Health) : null)
+      } catch {
+        if (alive) setHealth(null)
+      }
+    }
+    void poll()
+    const id = window.setInterval(poll, 20_000)
+    return () => {
+      alive = false
+      window.clearInterval(id)
+    }
+  }, [])
+  const mail = connected.includes('thunderbird')
+  return [
+    { label: 'Mail', on: mail },
+    { label: 'Calendar', on: mail },
+    { label: 'Meetings', on: connected.includes('granola') },
+    { label: 'Voice', on: health?.engine === 'local' },
+    { label: 'Local model', on: Boolean(health?.brains?.local) },
+    { label: 'Claude', on: Boolean(health?.brains?.claude) },
+  ]
+}
+
 export function Hud() {
   const phase = useStore((s) => s.phase)
   const caption = useStore((s) => s.caption)
   const turns = useStore((s) => s.turns)
   const activeTool = useStore((s) => s.activeTool)
   const connected = useStore((s) => s.connected)
+  const systems = useSystems(connected)
   const error = useStore((s) => s.error)
   const level = useStore((s) => s.level)
   const voice = useStore((s) => s.voice)
@@ -211,17 +250,12 @@ export function Hud() {
       {ui.chrome.systems && (
         <aside className="rail rail-left">
           <div className="rail-title">SYSTEMS</div>
-          {connected.length === 0 && <div className="rail-item dim">none linked</div>}
-          {connected.map((c) => (
-            <div key={c} className="rail-item">
-              <span className="tick" />
-              {c}
+          {systems.map((sys) => (
+            <div key={sys.label} className={`rail-item sys${sys.on ? '' : ' sys-off'}`}>
+              <span className={`sys-dot${sys.on ? ' on' : ''}`} />
+              {sys.label}
             </div>
           ))}
-          <div className="rail-item">
-            <span className="tick" />
-            Web
-          </div>
         </aside>
       )}
 
@@ -260,16 +294,16 @@ export function Hud() {
         )}
       </AnimatePresence>
 
-      {/* Conversation log — last few turns, fading upward */}
+      {/* Conversation log: the last three turns below the reactor, older ones fainter */}
       {ui.chrome.transcript && (
         <div className="log">
           <AnimatePresence initial={false}>
-            {turns.slice(-4).map((t) => (
+            {turns.slice(-3).map((t, i, shown) => (
               <motion.div
                 key={t.id}
                 className={`log-line log-${t.role}`}
                 initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
+                animate={{ opacity: [0.35, 0.62, 1][i + 3 - shown.length], y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 32 }}
               >

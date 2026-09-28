@@ -77,17 +77,42 @@ function log(...a) {
 
 const STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json')
 
+/**
+ * Bump LAYOUT to apply a new default window layout once, over whatever
+ * position was remembered; after that, moves and resizes are remembered again.
+ */
+const LAYOUT = 2
+
+/**
+ * The default window: centred in the left two thirds of the main screen and
+ * nearly screen tall, so the Jarvis reactor is the desktop's focal point
+ * (the desktop HUD widgets sit in the right third).
+ */
+function defaultBounds() {
+  const wa = screen.getPrimaryDisplay().workArea
+  const regionWidth = Math.round((wa.width * 2) / 3)
+  const height = Math.round(wa.height * 0.92)
+  const width = Math.min(Math.round(regionWidth * 0.72), Math.round(height * 1.2))
+  return {
+    x: wa.x + Math.round((regionWidth - width) / 2),
+    y: wa.y + Math.round((wa.height - height) / 2),
+    width,
+    height,
+  }
+}
+
 function loadState() {
   try {
     const s = JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8'))
+    if (s.layout !== LAYOUT) return { ...defaultBounds(), alwaysOnTop: s.alwaysOnTop, backdrop: s.backdrop }
     // Only reuse a position that is still on a connected display.
     const onScreen = screen.getAllDisplays().some((d) => {
       const b = d.workArea
       return s.x + 80 > b.x && s.x < b.x + b.width - 80 && s.y + 80 > b.y && s.y < b.y + b.height - 80
     })
-    return onScreen ? s : { width: s.width, height: s.height, alwaysOnTop: s.alwaysOnTop, backdrop: s.backdrop }
+    return onScreen ? s : { ...defaultBounds(), alwaysOnTop: s.alwaysOnTop, backdrop: s.backdrop }
   } catch {
-    return {}
+    return defaultBounds()
   }
 }
 
@@ -96,7 +121,7 @@ function saveState() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     if (!win || win.isDestroyed()) return
-    const state = { ...win.getBounds(), alwaysOnTop: win.isAlwaysOnTop(), backdrop }
+    const state = { ...win.getBounds(), alwaysOnTop: win.isAlwaysOnTop(), backdrop, layout: LAYOUT }
     try {
       fs.writeFileSync(STATE_FILE(), JSON.stringify(state))
     } catch (err) {
