@@ -21,6 +21,19 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
+// Personal settings (see .env.example). This module is the bridge's first
+// import, so loading .env here puts it in place before any other module reads
+// the environment, and before the billing guard runs: an API key put in .env
+// is refused like any other. Under `npm start` the launcher already loaded it.
+try {
+  process.loadEnvFile(join(HERE, '..', '.env'))
+} catch {
+  /* no .env: defaults everywhere */
+}
+const ROUTING_FILE = join(HERE, 'routing.json')
+const LOG_DIR = join(HERE, '..', 'logs')
+export const BRAIN_LOG = join(LOG_DIR, 'brain.log')
+
 export const LOCAL_URL = process.env.JARVIS_LOCAL_URL ?? 'http://localhost:11435'
 export const LOCAL_MODEL = process.env.JARVIS_LOCAL_MODEL ?? 'qwen3:30b-a3b-instruct-2507-q4_K_M'
 

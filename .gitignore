@@ -25,3 +25,42 @@ dist-ssr
 
 # Copied out of node_modules by scripts/start.mjs — 34MB of build output.
 public/mediapipe/
+
+# Personal settings (see .env.example)
+.env
+.env.*
+!.env.example
+
+# Local voice service: Python environment and downloaded models
+voice/.venv/
+voice/models/
+__pycache__/
+
+# Model files, wherever they end up
+ollama-models/
+ollama-home/
+*.onnx
+*.gguf
+*.tflite
+*.safetensors
+
+# Audio clips (the boot track that ships with the project stays)
+*.wav
+*.webm
+*.ogg
+*.m4a
+*.flac
+*.mp3
+!public/audio/*.mp3
+
+# Routing logs and screenshots
+logs/
+brain.log
+screenshots/
+
+# Desktop app: dependencies and Electron build output
+desktop/node_modules/
+desktop/dist/
+out/
+*.app
+*.dmg
