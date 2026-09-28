@@ -57,10 +57,22 @@ const paint = (tag, colour) => (line) =>
 
 const children = []
 
-function run(name, command, args, colour, env) {
+/**
+ * Jarvis must never bill the Anthropic API key in your shell. It is removed
+ * from the environment of everything this launcher starts — your shell and
+ * other tools keep it. The bridge also refuses to start if it can see one.
+ */
+const CREDENTIALS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL']
+function jarvisEnv(extra) {
+  const env = { ...process.env, ...extra }
+  for (const k of CREDENTIALS) delete env[k]
+  return env
+}
+
+function run(name, command, args, colour, env, { essential = true } = {}) {
   const label = paint(name, colour)
   const child = spawn(command, args, {
-    env: { ...process.env, ...env },
+    env: jarvisEnv(env),
     shell: false,
   })
   child.stdout.on('data', (d) => process.stdout.write(label(d) + '\n'))

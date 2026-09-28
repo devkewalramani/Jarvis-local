@@ -27,6 +27,10 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
+import { assertNoApiKey } from './brains.mjs'
+
+// Before anything else: Jarvis never runs where it could bill an API key.
+assertNoApiKey()
 
 const PORT = Number(process.env.JARVIS_BRIDGE_PORT ?? 8787)
 
