@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600&family=JetBrains+Mono:wght@300;400&display=swap');
+/* Fonts are vendored in public/fonts and linked from index.html — nothing remote. */
 
 :root {
   /* The interface cyan. `--accent` is re-declared per phase and per panel;
@@ -1896,3 +1896,19 @@ kbd {
   transform: scaleX(-1);
   background: #000;
 }
+
+/* -- Desktop wrapper ---------------------------------------------------- */
+/* Only inside the Electron app (desktop/), which sets html.desktop: every
+   full-screen surface goes clear so the reactor and text float over the
+   desktop. The browser version is untouched. */
+html.desktop,
+html.desktop body,
+html.desktop #root,
+html.desktop .boot,
+html.desktop .ignition {
+  background: transparent;
+}
+html.desktop body::after {
+  display: none;
+}
+

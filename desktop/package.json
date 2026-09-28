@@ -1,0 +1,49 @@
+{
+  "name": "jarvis-desktop",
+  "productName": "Jarvis",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Frameless, see-through macOS wrapper for the JARVIS web UI.",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "icon": "electron make-icon.cjs",
+    "build": "electron-builder --mac && node install-app.mjs"
+  },
+  "devDependencies": {
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "local.jarvis.desktop",
+    "productName": "Jarvis",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "assets/**"
+    ],
+    "asar": true,
+    "mac": {
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "hardenedRuntime": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Jarvis listens for \"Hey Jarvis\" and transcribes what you say, on this Mac.",
+        "LSUIElement": true
+      }
+    }
+  }
+}

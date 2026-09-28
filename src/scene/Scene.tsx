@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import { Core } from './Core'
 import { Particles } from './Particles'
 import { Orbits } from './Orbits'
+import { IS_DESKTOP } from '../lib/desktop'
 import { useStore, phaseColor, accentFor, type Phase } from '../store'
 
 /** Rings spin harder while JARVIS is working — reads as effort. */
@@ -232,8 +233,10 @@ export function Scene() {
           radialModulation={false}
           modulationOffset={0}
         />
-        <Noise opacity={0.035} blendFunction={BlendFunction.OVERLAY} />
-        <Vignette eskil={false} offset={0.22} darkness={0.95} />
+        {/* Film grain and vignette tint the whole frame; over the desktop
+            (the Electron wrapper) that would be a grey sheet, so they go. */}
+        {IS_DESKTOP ? <></> : <Noise opacity={0.035} blendFunction={BlendFunction.OVERLAY} />}
+        {IS_DESKTOP ? <></> : <Vignette eskil={false} offset={0.22} darkness={0.95} />}
       </EffectComposer>
     </Canvas>
   )
