@@ -1,0 +1,81 @@
+#!/bin/bash
+# Pre-commit safety check for a PUBLIC repository. Blocks the commit if the
+# staged changes contain:
+#   1. files that must never be committed (.env, logs, audio, models, builds);
+#   2. anything gitleaks recognises as a secret;
+#   3. API keys or tokens matching the patterns below;
+#   4. anything listed in .githooks/blocklist.local (your own email addresses,
+#      domains, home folder path...). That file is gitignored so the list
+#      itself is never published; see blocklist.example.
+# Enabled with: git config core.hooksPath .githooks
+# Bypassing it (git commit --no-verify) defeats the point; don't.
+
+set -u
+ROOT="$(git rev-parse --show-toplevel)"
+BLOCKLIST="$ROOT/.githooks/blocklist.local"
+red() { printf '\033[31m%s\033[0m\n' "$*"; }
+fail=0
+report() { red "  ✗ $*"; fail=1; }
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+
+echo "pre-commit: checking $(echo "$staged" | wc -l | tr -d ' ') staged file(s)..."
+
+# 1. Files that never belong in the repo
+while IFS= read -r f; do
+  case "$f" in
+    .env|.env.*) [ "$f" = ".env.example" ] || report "$f: environment file (.env) must not be committed" ;;
+    *.log|logs/*|*/logs/*) report "$f: log file" ;;
+    *.wav|*.webm|*.ogg|*.m4a|*.flac) report "$f: audio clip" ;;
+    *.mp3) case "$f" in public/audio/*) ;; *) report "$f: audio clip" ;; esac ;;
+    *.onnx|*.gguf|*.tflite|*.safetensors|ollama-models/*|voice/models/*) report "$f: model file" ;;
+    dist/*|*/dist/*|out/*|*.app/*|*.dmg|node_modules/*|*/node_modules/*) report "$f: build output or dependencies" ;;
+    .githooks/blocklist.local) report "$f: your personal blocklist must stay local" ;;
+  esac
+done <<< "$staged"
+
+# 2. gitleaks on the staged changes
+GITLEAKS=$(command -v gitleaks || ls "$HOME/.local/bin/gitleaks" /opt/homebrew/bin/gitleaks 2>/dev/null | head -1)
+if [ -z "$GITLEAKS" ]; then
+  report "gitleaks not found: install it (brew install gitleaks, or put the binary in ~/.local/bin) and commit again"
+else
+  if ! out=$("$GITLEAKS" git "$ROOT" --staged --no-banner --redact 2>&1); then
+    report "gitleaks found secrets in the staged changes:"
+    echo "$out" | grep -E "Finding|Secret|RuleID|File|Line" | sed 's/^/      /'
+  fi
+fi
+
+# 3 and 4. Patterns in the staged contents (not the working copy)
+KEY_PATTERNS='sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{32,}|ghp_[A-Za-z0-9]{30,}|gho_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|Bearer [A-Za-z0-9._~+/-]{24,}'
+personal=()
+if [ -f "$BLOCKLIST" ]; then
+  while IFS= read -r line; do
+    line="${line%%#*}"; line="$(echo "$line" | sed 's/[[:space:]]*$//; s/^[[:space:]]*//')"
+    [ -n "$line" ] && personal+=("$line")
+  done < "$BLOCKLIST"
+else
+  red "  ! $BLOCKLIST not found: only generic key patterns are checked (see blocklist.example)"
+fi
+
+while IFS= read -r f; do
+  [ "$f" = ".githooks/blocklist.example" ] && continue
+  content=$(git show ":$f" 2>/dev/null) || continue
+  printf '%s' "$content" | LC_ALL=C grep -qI . || continue   # skip binary files
+  if hits=$(printf '%s\n' "$content" | grep -nEo "$KEY_PATTERNS" | head -3); [ -n "$hits" ]; then
+    # Shown shortened, so the report itself doesn't repeat the secret.
+    while IFS= read -r h; do v="${h#*:}"; report "$f:${h%%:*}: looks like an API key or token (${v:0:10}…)"; done <<< "$hits"
+  fi
+  for p in "${personal[@]}"; do
+    if hit=$(printf '%s\n' "$content" | grep -niF -- "$p" | head -1 | cut -d: -f1); [ -n "$hit" ]; then
+      report "$f:$hit: contains a blocklisted personal value (\"$p\")"
+    fi
+  done
+done <<< "$staged"
+
+if [ $fail = 1 ]; then
+  echo
+  red "Commit blocked. Remove the items above from the staged changes (git restore --staged <file>) and try again."
+  exit 1
+fi
+echo "pre-commit: clean (gitleaks, key patterns, personal blocklist, file types)"

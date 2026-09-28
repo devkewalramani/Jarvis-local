@@ -1,0 +1,6 @@
+# Copy to .githooks/blocklist.local (gitignored) and list what must never be
+# committed: your email addresses, company domains, home folder path.
+# One per line, case-insensitive, plain text (not a regex).
+you@example.com
+yourcompany.example
+/Users/yourname

@@ -70,3 +70,6 @@ desktop-theme/backup/
 desktop-theme/.installed-fonts
 desktop-theme/ubersicht/jarvis-hud/.cache/
 desktop-theme/ubersicht/jarvis-hud/config.json
+
+# Pre-commit hook: the personal blocklist stays on this Mac
+.githooks/blocklist.local
