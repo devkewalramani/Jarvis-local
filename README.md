@@ -206,6 +206,17 @@ npm run brains
   Silicon and not notarised, so it runs only on the machine that built it.
 * **It has been tested on one machine,** with one set of mail accounts.
 
-## Licence
+## Credits and licences
 
-MIT, as in the original. See `LICENSE` for the original copyright notice.
+* **Jarvis:** [adewaskar/jarvis](https://github.com/adewaskar/jarvis) by Aditya
+  Dewaskar, MIT. See `LICENSE` for the original copyright notice; this edition
+  is released under the same licence.
+* **Fonts**, stored in `public/fonts/` so the page loads nothing remote:
+  * [Chakra Petch](https://github.com/m4rc1e/Chakra-Petch), copyright 2018 The
+    Chakra Petch Project Authors, SIL Open Font License 1.1
+    (`public/fonts/ChakraPetch-OFL.txt`).
+  * [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), copyright 2020
+    The JetBrains Mono Project Authors, SIL Open Font License 1.1
+    (`public/fonts/JetBrainsMono-OFL.txt`).
+* **Voice:** `faster-whisper`, Kokoro (`kokoro-onnx`), Piper and openWakeWord
+  are installed by `voice/README.md` and are not part of this repository.
