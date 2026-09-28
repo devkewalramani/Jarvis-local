@@ -1983,6 +1983,33 @@ html.desktop .hud-bottom kbd { font-size: 10px; }
 html.desktop .log-who { opacity: 0.6; font-size: 9px; }
 html.desktop .log-user .log-text { opacity: 0.96; }
 
+/* The subtitle, the SIGNAL label and the key hint bar: one more size step,
+   full opacity, and a lighter cyan. */
+html.desktop .brand-sub,
+html.desktop .rail-right .rail-title,
+html.desktop .hud-bottom {
+  font-size: 11px;
+  opacity: 1;
+  color: color-mix(in srgb, var(--accent) 72%, #ffffff);
+}
+html.desktop .hud-bottom kbd { font-size: 11px; }
+
+/* Clear backdrop: nothing sits behind the text but the wallpaper, so every
+   line gets a close, dark halo. Tight enough to stay invisible as a shape;
+   the window's click-through still passes clicks on empty areas. */
+html.desktop[data-backdrop='clear'] .hud {
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 1),
+    0 0 6px rgba(0, 0, 0, 0.9),
+    0 0 14px rgba(0, 0, 0, 0.7);
+}
+html.desktop[data-backdrop='clear'] .brand-mark {
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 1),
+    0 0 6px rgba(0, 0, 0, 0.9),
+    0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 /* -- Mic test (desktop menu: Test mic) -------------------------------- */
 .mic-test {
   position: fixed;

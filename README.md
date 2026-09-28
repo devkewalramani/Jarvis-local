@@ -94,8 +94,9 @@ core, and `desktop-theme/restore.sh` puts the default look back. See
 **A macOS desktop app.** `desktop/` wraps the interface in a frameless Electron
 window:
 
-* **Backdrop:** a native frosted glass backdrop, with Clear and Dark
-  alternatives chosen from a menu bar icon.
+* **Backdrop:** Clear by default (no panel; text keeps a dark halo so it
+  reads over any wallpaper), with a native frosted glass panel and a dark
+  panel as alternatives in the menu bar icon.
 * **Clicks:** in Clear, clicks pass through empty areas.
 * **Controls:** drag by the reactor, Cmd+Shift+J to show or hide, and always
   on top from the menu.

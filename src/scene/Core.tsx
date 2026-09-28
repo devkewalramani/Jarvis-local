@@ -121,7 +121,10 @@ const fragment = /* glsl */ `
     float kWash    = mix(1.0, 1.60, wSphere) * mix(1.0, 0.00, wWire);
     float kGlow    = mix(1.0, 2.20, wSphere) * mix(1.0, 0.30, wWire);
 
-    float outer = band(r, R, 0.030) * (0.45 + erode * 0.6);
+    // Erosion now only varies the band between 0.62 and 0.86 (it was 0.45 to
+    // 1.05), so the ring glows evenly all the way round instead of flaring on
+    // whichever side the pattern happens to be bright.
+    float outer = band(r, R, 0.030) * (0.62 + erode * 0.24);
     // A second, tighter pass just inside gives the ring an inner wall, which is
     // what makes it read as a tube seen slightly from the front.
     float wall  = band(r, R - 0.055, 0.020) * 0.5;
@@ -145,7 +148,8 @@ const fragment = /* glsl */ `
     // a visible radial seam, which reads as a rendering fault rather than as a
     // sweep — it was the one artefact in the whole ring.
     float wake = smoothstep(-2.6, -0.15, dA) * (1.0 - smoothstep(0.0, 0.22, dA));
-    float radar = wake * band(r, R - 0.02, 0.075) * (0.55 + uLevel * 0.45);
+    // About 30% softer than first authored, so the wake no longer clips to white.
+    float radar = wake * band(r, R - 0.02, 0.075) * (0.38 + uLevel * 0.32);
 
     // -- concentric hairlines inside ---------------------------------------
     float lines =
@@ -188,8 +192,10 @@ const fragment = /* glsl */ `
             + bodyFill;
 
     // The moving highlights run hot; the body of the ring keeps its hue.
+    // (Weights about 30% lower than first authored: less of the ring turns
+    // white-hot, which bloom then pushed into pure white.)
     vec3 col = mix(uColor, uHot,
-      clamp(edge * 1.3 + radar * 0.7 + pulse * 0.5 + dust * 0.4, 0.0, 1.0));
+      clamp(edge * 0.9 + radar * 0.5 + pulse * 0.5 + dust * 0.3, 0.0, 1.0));
 
     // Radial reveal on power-up: the ring assembles from the centre outward.
     v *= smoothstep(0.0, 0.35, uOpen - r * 0.45);
@@ -197,6 +203,13 @@ const fragment = /* glsl */ `
     // Brightness authority for the whole orb, applied last so it scales the
     // finished image rather than any one term. 1.0 is the authored look.
     v *= uIntensity;
+
+    // Soft roll-off at the top: below 0.85 the image is exactly as authored;
+    // above it the brightness approaches 1.15 smoothly instead of clipping,
+    // which (with the near-white hot colour and bloom on top) was turning the
+    // outer ring's brightest stretches pure white.
+    const float PEAK = 0.85;
+    if (v > PEAK) v = PEAK + (1.0 - exp(-(v - PEAK) * 2.5)) * 0.30;
 
     gl_FragColor = vec4(col * v, v);
   }

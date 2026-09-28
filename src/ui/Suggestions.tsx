@@ -19,7 +19,7 @@ const EXAMPLES = [
   'search for the best coffee near me',
   'read me the top story on Hacker News',
   'open my GitHub notifications',
-  "summarise what's in my inbox",
+  "summarize what's in my inbox",
   'find me a loading animation',
   "what's the weather looking like",
 ]

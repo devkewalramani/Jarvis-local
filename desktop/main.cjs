@@ -44,6 +44,8 @@ let quitting = false
  * panel. The page styles itself from <html data-backdrop> (see preload.cjs).
  */
 const BACKDROPS = { clear: 'Clear', frosted: 'Frosted', dark: 'Dark' }
+/** Bump to apply the default backdrop once over a remembered choice. */
+const BACKDROP_DEFAULTS = 2
 
 /**
  * Microphone sensitivity, from the menu bar icon, saved as plain numbers in
@@ -58,7 +60,7 @@ const PAUSE_LEVELS = { Short: 600, Normal: 1000, Long: 1600 }
 const VOICE_DEFAULTS = { wakeThreshold: WAKE_LEVELS.Medium, pauseMs: PAUSE_LEVELS.Normal }
 const VOICE_FILE = () => path.join(app.getPath('userData'), 'voice-settings.json')
 let voice = { ...VOICE_DEFAULTS }
-let backdrop = 'frosted'
+let backdrop = 'clear'   // the default: no panel; Frosted and Dark are in the menu
 
 /** To the console and to logs/desktop-app.log (there is no console when opened from Finder). */
 function log(...a) {
@@ -104,7 +106,7 @@ function defaultBounds() {
 function loadState() {
   try {
     const s = JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8'))
-    if (s.layout !== LAYOUT) return { ...defaultBounds(), alwaysOnTop: s.alwaysOnTop, backdrop: s.backdrop }
+    if (s.layout !== LAYOUT) return { ...defaultBounds(), alwaysOnTop: s.alwaysOnTop, backdrop: s.backdrop, backdropDefaults: s.backdropDefaults }
     // Only reuse a position that is still on a connected display.
     const onScreen = screen.getAllDisplays().some((d) => {
       const b = d.workArea
@@ -121,7 +123,7 @@ function saveState() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     if (!win || win.isDestroyed()) return
-    const state = { ...win.getBounds(), alwaysOnTop: win.isAlwaysOnTop(), backdrop, layout: LAYOUT }
+    const state = { ...win.getBounds(), alwaysOnTop: win.isAlwaysOnTop(), backdrop, layout: LAYOUT, backdropDefaults: BACKDROP_DEFAULTS }
     try {
       fs.writeFileSync(STATE_FILE(), JSON.stringify(state))
     } catch (err) {
@@ -300,7 +302,7 @@ app.on('web-contents-created', (_e, contents) => {
 
 function createWindow() {
   const s = loadState()
-  if (BACKDROPS[s.backdrop]) backdrop = s.backdrop
+  if (BACKDROPS[s.backdrop] && s.backdropDefaults === BACKDROP_DEFAULTS) backdrop = s.backdrop
   win = new BrowserWindow({
     x: s.x,
     y: s.y,
@@ -350,6 +352,7 @@ function createWindow() {
   win.loadURL(FACE_URL)
   win.once('ready-to-show', () => {
     win.show()
+    saveState() // records any one-time defaults (layout, backdrop) just applied
     log(`window shown at ${JSON.stringify(win.getBounds())}, always on top: ${win.isAlwaysOnTop()}`)
     rebuildTrayMenu()
     startClickThrough()

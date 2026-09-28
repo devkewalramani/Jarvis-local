@@ -220,7 +220,9 @@ export function Scene() {
       <EffectComposer multisampling={0}>
         {/* Bloom is what turns additive lines into "hologram". */}
         <Bloom
-          intensity={1.15}
+          // 0.8, about 30% under the original 1.15, so the outer ring glows
+          // without clipping to pure white.
+          intensity={0.8}
           // A higher threshold keeps the mid-tones intact so the orb doesn't
           // flatten into a solid white disc.
           luminanceThreshold={0.22}
