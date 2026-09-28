@@ -1,7 +1,26 @@
+/**
+ * Runs in an isolated world before the page. Exposes one flag the page reads
+ * to go transparent (src/lib/desktop.ts), marks <html> with the backdrop chosen
+ * in the menu bar (styled in index.css), and turns a press-and-move into a
+ * window drag. Nothing from Node or Electron reaches the page.
+ */
 
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('jarvisDesktop', Object.freeze({ isDesktop: true }))
+
+// --- Backdrop: 'clear' | 'frosted' | 'dark' ---------------------------------
+
+let backdrop = ipcRenderer.sendSync('jarvis:get-backdrop')
+const markBackdrop = () => {
+  if (document.documentElement) document.documentElement.dataset.backdrop = backdrop
+}
+markBackdrop()
+document.addEventListener('DOMContentLoaded', markBackdrop)
+ipcRenderer.on('jarvis:backdrop', (_e, mode) => {
+  backdrop = mode
+  markBackdrop()
+})
 
 // --- Dragging ---------------------------------------------------------------
 //
@@ -14,7 +33,26 @@ contextBridge.exposeInMainWorld('jarvisDesktop', Object.freeze({ isDesktop: true
 //
 // A small threshold keeps plain clicks working as clicks.
 
+const INTERACTIVE =
+  'button, a, input, textarea, select, label, iframe, video, [role="button"], [contenteditable], .blade, .blades-stack, .panels > *'
+
+function isHandle(target) {
+  if (!(target instanceof Element)) return false
+  if (target instanceof HTMLCanvasElement) return true
+  if (backdrop === 'clear') return false
+  return !target.closest(INTERACTIVE)
+}
+
 let press = null
+
+window.addEventListener(
+  'mousedown',
+  (e) => {
+    if (e.button !== 0 || !isHandle(e.target)) return
+    press = { x: e.screenX, y: e.screenY, moving: false }
+  },
+  true,
+)
 
 window.addEventListener(
   'mousemove',

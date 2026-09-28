@@ -2,13 +2,17 @@ import { useRef, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { Drive } from './Scene'
+import { IS_DESKTOP } from '../lib/desktop'
 
 /**
  * A shell of points around the core. Each one drifts on its own orbit and gets
  * pushed outward by loudness, so the whole cloud expands when JARVIS speaks.
  */
 
-const COUNT = 4000
+// In the desktop app the cloud floats over the user's wallpaper, where 4000
+// points read as noise; half as many, dimmer, keeps the reactor the focus.
+const COUNT = IS_DESKTOP ? 2000 : 4000
+const DUST_BRIGHTNESS = IS_DESKTOP ? 0.55 : 1
 
 const vertex = /* glsl */ `
   uniform float uTime;
@@ -107,7 +111,7 @@ export function Particles({ drive }: { drive: Drive }) {
     if (!mat.current || !pts.current) return
     const u = mat.current.uniforms
     pts.current.visible = drive.reactor.visible
-    u.uIntensity.value = drive.reactor.intensity
+    u.uIntensity.value = drive.reactor.intensity * DUST_BRIGHTNESS
     u.uTime.value = state.clock.elapsedTime
     u.uLevel.value += (drive.level - u.uLevel.value) * Math.min(1, dt * 6)
     ;(u.uColor.value as THREE.Color).lerp(drive.color, Math.min(1, dt * 3))

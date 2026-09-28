@@ -37,6 +37,15 @@ let tray = null
 let launcher = null // the scripts/start.mjs process, when we started it
 let quitting = false
 
+/**
+ * The backdrop behind the page, from the menu bar icon, remembered between
+ * launches. Clear: see-through, clicks pass through empty areas. Frosted
+ * (default): native macOS vibrancy, like Control Center. Dark: an 85% opaque
+ * panel. The page styles itself from <html data-backdrop> (see preload.cjs).
+ */
+const BACKDROPS = { clear: 'Clear', frosted: 'Frosted', dark: 'Dark' }
+let backdrop = 'frosted'
+
 /** To the console and to logs/desktop-app.log (there is no console when opened from Finder). */
 function log(...a) {
   const line = `${new Date().toISOString()} [jarvis-desktop] ${a.join(' ')}`
@@ -53,6 +62,34 @@ function log(...a) {
 // ---------------------------------------------------------------------------
 
 const STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json')
+
+function loadState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8'))
+    // Only reuse a position that is still on a connected display.
+    const onScreen = screen.getAllDisplays().some((d) => {
+      const b = d.workArea
+      return s.x + 80 > b.x && s.x < b.x + b.width - 80 && s.y + 80 > b.y && s.y < b.y + b.height - 80
+    })
+    return onScreen ? s : { width: s.width, height: s.height, alwaysOnTop: s.alwaysOnTop, backdrop: s.backdrop }
+  } catch {
+    return {}
+  }
+}
+
+let saveTimer = null
+function saveState() {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    if (!win || win.isDestroyed()) return
+    const state = { ...win.getBounds(), alwaysOnTop: win.isAlwaysOnTop(), backdrop }
+    try {
+      fs.writeFileSync(STATE_FILE(), JSON.stringify(state))
+    } catch (err) {
+      log('could not save window state:', err.message)
+    }
+  }, 300)
+}
 
 // ---------------------------------------------------------------------------
 // Services: bridge + face + voice + Jarvis Ollama, via scripts/start.mjs
@@ -222,6 +259,79 @@ app.on('web-contents-created', (_e, contents) => {
 // The window
 // ---------------------------------------------------------------------------
 
+function createWindow() {
+  const s = loadState()
+  if (BACKDROPS[s.backdrop]) backdrop = s.backdrop
+  win = new BrowserWindow({
+    x: s.x,
+    y: s.y,
+    width: s.width || 900,
+    height: s.height || 900,
+    minWidth: 320,
+    minHeight: 320,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    // Frosted is native vibrancy; 'active' keeps it frosted when unfocused.
+    vibrancy: backdrop === 'frosted' ? 'hud' : undefined,
+    visualEffectState: 'active',
+    roundedCorners: true,
+    alwaysOnTop: Boolean(s.alwaysOnTop),
+    fullscreenable: false,
+    skipTaskbar: true,
+    show: false,
+    title: 'Jarvis',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      webgl: true,
+      spellcheck: false,
+      // Keep listening for "hey jarvis" while hidden or behind other windows.
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
+      devTools: !app.isPackaged,
+    },
+  })
+
+  win.on('moved', saveState)
+  win.on('resized', saveState)
+  win.on('close', (e) => {
+    // The window only hides; Quit is in the menu bar icon.
+    if (!quitting) {
+      e.preventDefault()
+      win.hide()
+      rebuildTrayMenu()
+    }
+  })
+
+  win.loadURL(FACE_URL)
+  win.once('ready-to-show', () => {
+    win.show()
+    log(`window shown at ${JSON.stringify(win.getBounds())}, always on top: ${win.isAlwaysOnTop()}`)
+    rebuildTrayMenu()
+    startClickThrough()
+    // Test aids only: click INITIALISE automatically, and save what the
+    // compositor receives (with its alpha channel) to prove it is see-through.
+    if (process.env.JARVIS_DESKTOP_AUTOINIT === '1') {
+      setTimeout(() => win.webContents.executeJavaScript("document.querySelector('.ignition')?.click()", true), 1500)
+    }
+    if (process.env.JARVIS_DESKTOP_SNAPSHOT) {
+      setTimeout(async () => {
+        const img = await win.webContents.capturePage()
+        fs.writeFileSync(process.env.JARVIS_DESKTOP_SNAPSHOT, img.toPNG())
+        const bmp = img.toBitmap()
+        let clear = 0
+        for (let i = 3; i < bmp.length; i += 4) if (bmp[i] === 0) clear++
+        log(`snapshot ${img.getSize().width}x${img.getSize().height}: ${((100 * clear) / (bmp.length / 4)).toFixed(1)}% of pixels fully transparent`)
+      }, 12000)
+    }
+  })
+}
+
 /**
  * Clicks pass through fully transparent pixels.
  *
@@ -238,6 +348,53 @@ function setIgnore(ignore) {
   if (ignore === ignoring || !win || win.isDestroyed()) return
   ignoring = ignore
   win.setIgnoreMouseEvents(ignore, { forward: true })
+}
+
+function setBackdrop(mode) {
+  if (!BACKDROPS[mode] || !win) return
+  backdrop = mode
+  win.setVibrancy(mode === 'frosted' ? 'hud' : null)
+  win.webContents.send('jarvis:backdrop', mode)
+  // A panel (Frosted, Dark) takes every click; only Clear passes them through.
+  if (mode !== 'clear') setIgnore(false)
+  log(`backdrop ${mode}`)
+  saveState()
+  rebuildTrayMenu()
+}
+
+ipcMain.on('jarvis:get-backdrop', (e) => {
+  e.returnValue = backdrop
+})
+
+function startClickThrough() {
+  setIgnore(backdrop === 'clear')
+  let busy = false
+  setInterval(async () => {
+    if (busy || !win || win.isDestroyed() || !win.isVisible() || dragging) return
+    if (backdrop !== 'clear') return setIgnore(false)
+    const p = screen.getCursorScreenPoint()
+    const b = win.getBounds()
+    const x = p.x - b.x
+    const y = p.y - b.y
+    if (x < 0 || y < 0 || x >= b.width || y >= b.height) return setIgnore(true)
+    busy = true
+    try {
+      const r = 4
+      const img = await win.webContents.capturePage({
+        x: Math.max(0, x - r), y: Math.max(0, y - r), width: 2 * r + 1, height: 2 * r + 1,
+      })
+      const bmp = img.toBitmap() // BGRA
+      let alpha = 0
+      for (let i = 3; i < bmp.length; i += 4) alpha = Math.max(alpha, bmp[i])
+      // 48, not 1: the reactor's particle cloud leaves faint specks (alpha
+      // under 40) across the window, and those should not catch clicks.
+      setIgnore(alpha < 48)
+    } catch {
+      /* window mid-resize; try again next tick */
+    } finally {
+      busy = false
+    }
+  }, 50)
 }
 
 /** Drag by the reactor: the preload reports a press-and-move on the canvas. */
@@ -274,6 +431,36 @@ function toggleWindow() {
   rebuildTrayMenu()
 }
 
+function rebuildTrayMenu() {
+  if (!tray || !win) return
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: win.isVisible() ? 'Hide Jarvis' : 'Show Jarvis', accelerator: 'Cmd+Shift+J', click: toggleWindow },
+      {
+        label: 'Always on Top',
+        type: 'checkbox',
+        checked: win.isAlwaysOnTop(),
+        click: (item) => {
+          win.setAlwaysOnTop(item.checked, 'floating')
+          saveState()
+        },
+      },
+      {
+        label: 'Backdrop',
+        submenu: Object.entries(BACKDROPS).map(([mode, label]) => ({
+          label,
+          type: 'radio',
+          checked: backdrop === mode,
+          click: () => setBackdrop(mode),
+        })),
+      },
+      { label: 'Open in Browser', click: () => shell.openExternal(FACE_URL) },
+      { type: 'separator' },
+      { label: 'Quit Jarvis', accelerator: 'Cmd+Q', click: () => app.quit() },
+    ]),
+  )
+}
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(ASSETS, 'trayTemplate.png'))
   icon.setTemplateImage(true)
@@ -285,3 +472,57 @@ function createTray() {
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    win?.show()
+    win?.focus()
+  })
+
+  app.whenReady().then(async () => {
+    app.dock?.hide() // a menu bar app: no Dock icon
+    createTray()
+    lockDownSession(session.defaultSession)
+
+    // Ask for the microphone up front, so the macOS prompt appears now rather
+    // than the first time the wake word listens. Not awaited: the prompt
+    // waits on the user, and the services should not.
+    log(`microphone status: ${systemPreferences.getMediaAccessStatus('microphone')}`)
+    systemPreferences
+      .askForMediaAccess('microphone')
+      .then((mic) => log(`microphone access: ${mic ? 'granted' : 'denied'}`))
+      .catch((err) => log('microphone prompt failed:', err.message))
+
+    // On failure, fail() has already put up the alert that quits.
+    if (!(await ensureServices())) return
+
+    createWindow()
+    if (!globalShortcut.register('CommandOrControl+Shift+J', toggleWindow)) {
+      log('Cmd+Shift+J is taken by another app')
+    }
+  })
+
+  app.on('before-quit', async (e) => {
+    if (quitting) return
+    quitting = true
+    e.preventDefault()
+    saveState()
+    globalShortcut.unregisterAll()
+    await stopServices()
+    app.exit(0)
+  })
+
+  // Stay alive in the menu bar with no windows open.
+  app.on('window-all-closed', () => {})
+
+  // `kill`, logout and shutdown: stop the services on the way out, too.
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => app.quit())
+
+  // Debug aid: `kill -USR2 <pid>` steps to the next backdrop (for screenshots).
+  process.on('SIGUSR2', () => {
+    const modes = Object.keys(BACKDROPS)
+    setBackdrop(modes[(modes.indexOf(backdrop) + 1) % modes.length])
+  })
+}

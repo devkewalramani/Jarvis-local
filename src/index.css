@@ -1912,3 +1912,38 @@ html.desktop body::after {
   display: none;
 }
 
+/* Backdrops, chosen from the menu bar icon and set on <html> by the preload
+   as data-backdrop. Clear: nothing. Frosted: native macOS vibrancy behind the
+   page (set by the app) plus a light tint. Dark: an 85% opaque panel. Both
+   panels get the rounded corners. */
+html.desktop[data-backdrop='frosted'] body,
+html.desktop[data-backdrop='dark'] body {
+  border-radius: 20px;
+}
+html.desktop[data-backdrop='frosted'] body {
+  background: rgba(2, 8, 12, 0.22);
+}
+html.desktop[data-backdrop='dark'] body {
+  background: rgba(3, 9, 13, 0.85);
+}
+
+/* Readability over a wallpaper, in every backdrop: a dark halo under all HUD
+   text, the small labels brought up, and a larger status line. */
+html.desktop .hud {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 8px rgba(0, 0, 0, 0.7);
+}
+html.desktop .brand-mark {
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 0 8px rgba(0, 0, 0, 0.7),
+    0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+html.desktop .brand-sub { opacity: 0.78; }
+html.desktop .rail-title { opacity: 0.8; font-size: 9px; }
+html.desktop .rail-item { opacity: 1; }
+html.desktop .rail-item.dim { opacity: 0.62; }
+html.desktop .status { font-size: 12px; }
+html.desktop .hud-bottom { opacity: 0.72; }
+html.desktop .log-user .log-text { opacity: 0.8; }
