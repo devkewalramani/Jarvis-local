@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Jarvis wallpaper</title>
+<!--
+  A slow, dim Jarvis desktop background for Plash.
+  Colours from ~/jarvis-home/src/index.css: cyan #00e5ff on #01060c.
+
+  Kept cheap on purpose:
+    - the grid and vignette are drawn once, onto their own canvas;
+    - only the rings and ~40 particles animate, at 12 frames a second;
+    - nothing runs while the page is hidden, or with "reduce motion" on;
+    - Plash's "Deactivate while on battery" stops it entirely on battery.
+  Tunables are in CONFIG below.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #01060c; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+</style>
+</head>
+<body>
+<canvas id="static"></canvas>
+<canvas id="live"></canvas>
+<script>
+const CONFIG = {
+  fps: 12,                 // animation frame rate
+  cyan: [0, 229, 255],     // --interface
+  bg: '#01060c',           // --bg
+  reactorX: 0.26,          // reactor centre, as a fraction of the screen
+  reactorY: 0.52,          //   (left of centre: the Jarvis app sits right)
+  reactorSize: 0.36,       // outer ring radius, as a fraction of screen height
+  gridStep: 64,            // px between grid lines
+  particles: 40,
+  brightness: 0.55,        // overall dimmer, 0..1
+}
+
+const rgba = (a) => `rgba(${CONFIG.cyan.join(',')},${(a * CONFIG.brightness).toFixed(3)})`
+const S = document.getElementById('static'), L = document.getElementById('live')
+const sctx = S.getContext('2d'), lctx = L.getContext('2d')
+let W = 0, H = 0, cx = 0, cy = 0, R = 0, particles = []
+
+function size() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5)   // cap: fewer pixels, less GPU
+  W = innerWidth; H = innerHeight
+  for (const c of [S, L]) { c.width = W * dpr; c.height = H * dpr }
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0); lctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  cx = W * CONFIG.reactorX; cy = H * CONFIG.reactorY; R = H * CONFIG.reactorSize
+  drawStatic()
+  particles = Array.from({ length: CONFIG.particles }, () => ({
+    x: Math.random() * W, y: Math.random() * H,
+    vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3,   // px per second
+    r: 0.6 + Math.random() * 1.2, phase: Math.random() * Math.PI * 2,
+  }))
+}
+
+function drawStatic() {
+  sctx.fillStyle = CONFIG.bg; sctx.fillRect(0, 0, W, H)
+  // faint grid
+  sctx.strokeStyle = rgba(0.045); sctx.lineWidth = 1; sctx.beginPath()
+  for (let x = 0.5; x < W; x += CONFIG.gridStep) { sctx.moveTo(x, 0); sctx.lineTo(x, H) }
+  for (let y = 0.5; y < H; y += CONFIG.gridStep) { sctx.moveTo(0, y); sctx.lineTo(W, y) }
+  sctx.stroke()
+  // soft glow behind the reactor
+  const g = sctx.createRadialGradient(cx, cy, 0, cx, cy, R * 1.4)
+  g.addColorStop(0, rgba(0.10)); g.addColorStop(1, 'rgba(0,0,0,0)')
+  sctx.fillStyle = g; sctx.fillRect(0, 0, W, H)
+  // vignette
+  const v = sctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75)
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.55)')
+  sctx.fillStyle = v; sctx.fillRect(0, 0, W, H)
+  // static inner detail: fine tick ring
+  sctx.strokeStyle = rgba(0.18); sctx.lineWidth = 1
+  for (let i = 0; i < 120; i++) {
+    const a = (i / 120) * Math.PI * 2, r1 = R * 0.62, r2 = r1 + (i % 10 === 0 ? 10 : 4)
+    sctx.beginPath(); sctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1)
+    sctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2); sctx.stroke()
+  }
+}
+
+// rings: [radius fraction, line width, alpha, dash (or null), speed rad/s, arc fraction]
+const RINGS = [
+  [1.00, 1.0, 0.35, null, 0.020, 1.0],
+  [0.92, 3.0, 0.45, [18, 10], -0.035, 1.0],
+  [0.80, 1.0, 0.30, null, 0.050, 0.72],
+  [0.72, 1.5, 0.40, [2, 8], -0.070, 1.0],
+  [0.48, 1.0, 0.35, null, 0.090, 0.55],
+  [0.30, 2.0, 0.55, null, -0.040, 1.0],
+]
+
+function frame(t) {
+  const s = t / 1000
+  lctx.clearRect(0, 0, W, H)
+  lctx.shadowColor = rgba(0.9); lctx.shadowBlur = 8
+  for (const [f, w, a, dash, speed, arc] of RINGS) {
+    lctx.strokeStyle = rgba(a); lctx.lineWidth = w; lctx.setLineDash(dash || [])
+    const start = s * speed
+    lctx.beginPath(); lctx.arc(cx, cy, R * f, start, start + Math.PI * 2 * arc); lctx.stroke()
+  }
+  lctx.setLineDash([])
+  // the triangle at the core, breathing slowly
+  const tr = R * 0.2, breathe = 0.35 + 0.15 * Math.sin(s * 0.6)
+  lctx.strokeStyle = rgba(breathe * 1.4); lctx.lineWidth = 2; lctx.beginPath()
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3
+    lctx[i ? 'lineTo' : 'moveTo'](cx + Math.cos(a) * tr, cy + Math.sin(a) * tr)
+  }
+  lctx.closePath(); lctx.stroke()
+  // sparse particles
+  lctx.shadowBlur = 0
+  for (const p of particles) {
+    p.x = (p.x + p.vx / CONFIG.fps + W) % W; p.y = (p.y + p.vy / CONFIG.fps + H) % H
+    lctx.fillStyle = rgba(0.25 + 0.2 * Math.sin(s * 0.8 + p.phase))
+    lctx.beginPath(); lctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); lctx.fill()
+  }
+}
+
+let timer = null
+const reduced = matchMedia('(prefers-reduced-motion: reduce)')
+function start() {
+  stop()
+  frame(performance.now())                       // always paint one frame
+  if (document.hidden || reduced.matches) return // then stay still
+  timer = setInterval(() => frame(performance.now()), 1000 / CONFIG.fps)
+}
+function stop() { if (timer) clearInterval(timer); timer = null }
+
+addEventListener('resize', () => { size(); start() })
+document.addEventListener('visibilitychange', start)
+reduced.addEventListener('change', start)
+size(); start()
+</script>
+</body>
+</html>

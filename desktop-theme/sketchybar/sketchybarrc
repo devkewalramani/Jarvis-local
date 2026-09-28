@@ -1,0 +1,42 @@
+#!/bin/bash
+# SketchyBar, Jarvis style: cyan #00e5ff on #01060c, thin lines,
+# Chakra Petch with JetBrains Mono for numbers.
+# Linked from ~/.config/sketchybar. The native menu bar is set to auto hide;
+# move the mouse to the top edge and the Apple and app menus slide over this.
+# Turn off: desktop-theme/sketchybar-off.sh     Undo all: desktop-theme/restore.sh
+
+PLUGINS="$CONFIG_DIR/plugins"
+CYAN=0xff00e5ff
+CYAN_DIM=0x8c00e5ff
+BG=0xe601060c
+LINE=0x4d00e5ff
+
+sketchybar --bar position=top height=30 color=$BG border_color=$LINE border_width=1 \
+                 corner_radius=0 blur_radius=20 shadow=off topmost=off sticky=on \
+                 padding_left=14 padding_right=14 margin=0 y_offset=0
+
+sketchybar --default icon.font="JetBrains Mono:Regular:12.0" \
+                     label.font="Chakra Petch:Medium:12.0" \
+                     icon.color=$CYAN label.color=$CYAN \
+                     icon.padding_right=5 padding_left=8 padding_right=8
+
+# Left: Jarvis status, then the app in front
+sketchybar --add item jarvis left \
+           --set jarvis icon="●" label="JARVIS" update_freq=10 script="$PLUGINS/jarvis.sh" \
+           --add item sep_left left \
+           --set sep_left icon="│" icon.color=$LINE label.drawing=off padding_left=2 padding_right=2 \
+           --add item front_app left \
+           --set front_app icon.drawing=off label.color=$CYAN_DIM script="$PLUGINS/front_app.sh" \
+           --subscribe front_app front_app_switched
+
+# Right (listed right to left): time, battery, wifi
+sketchybar --add item clock right \
+           --set clock icon.drawing=off label.font="JetBrains Mono:Medium:12.0" update_freq=30 script="$PLUGINS/clock.sh" \
+           --add item battery right \
+           --set battery icon.drawing=off update_freq=120 script="$PLUGINS/battery.sh" \
+           --subscribe battery power_source_change system_woke \
+           --add item wifi right \
+           --set wifi icon.drawing=off update_freq=60 script="$PLUGINS/wifi.sh" \
+           --subscribe wifi wifi_change system_woke
+
+sketchybar --update

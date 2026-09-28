@@ -64,3 +64,9 @@ desktop/dist/
 out/
 *.app
 *.dmg
+
+# Desktop theme: machine local state
+desktop-theme/backup/
+desktop-theme/.installed-fonts
+desktop-theme/ubersicht/jarvis-hud/.cache/
+desktop-theme/ubersicht/jarvis-hud/config.json
