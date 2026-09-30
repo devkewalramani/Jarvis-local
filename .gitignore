@@ -73,3 +73,6 @@ desktop-theme/ubersicht/jarvis-hud/config.json
 
 # Pre-commit hook: the personal blocklist stays on this Mac
 .githooks/blocklist.local
+
+# Third party code fetched locally (thunderbird-mcp v0.7.6 bridge)
+vendor/
