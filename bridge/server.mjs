@@ -31,6 +31,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
+import { prepareDraft } from './signature.mjs'
 
 // Before anything else: Jarvis never runs where it could bill an API key.
 assertNoApiKey()
@@ -497,6 +498,10 @@ Mail:
   skip automated messages (receipts, newsletters, no-reply senders), and ask
   which one they mean, offering the two or three most recent from real people
   by sender and subject, in one sentence.
+- Every saveDraft needs "from": the email address of the account the draft
+  is sent from (the account that received the thread, or the one matching the
+  recipients' organisation). Write the body as plain text; your signature for
+  that account is added for you, so never write one yourself.
 - Who it goes to. A reply is addressed to the sender only: their address in
   "to", nothing in cc or bcc. Include the other recipients only when the user
   said "reply all".
@@ -1397,10 +1402,23 @@ wss.on('connection', (socket) => {
           const args = toolName.startsWith('mcp__thunderbird__') ? ` ${JSON.stringify(input).slice(0, 200)}` : ''
           console.log(
           `[jarvis] ${kind} tool ${toolName}${args} -> ${ok ? 'allow' : 'deny'}` +
-            (fixed ? ` (rewritten to ${JSON.stringify(fixed)})` : ''),
+            (fixed ? ` (rewritten to ${JSON.stringify(fixed).slice(0, 300)})` : ''),
         )
+          // saveDraft: the sending identity passed explicitly, an HTML body, and
+          // that identity's Thunderbird signature (bridge/signature.mjs, which
+          // reads prefs.js fresh each time and never writes it).
+          let draft = null
+          if (ok && toolName === 'mcp__thunderbird__saveDraft') {
+            draft = prepareDraft(fixed ?? input)
+            if (draft.error) {
+              console.log(`[jarvis] ${kind} saveDraft refused: ${draft.error}`)
+              return { behavior: 'deny', message: draft.error }
+            }
+            console.log(`[jarvis] ${kind} saveDraft from ${draft.identity}, signature ${draft.signed ? 'added' : 'none for this identity'}`)
+          }
+          const finalInput = draft?.input ?? fixed
           return ok
-            ? { behavior: 'allow', ...(fixed ? { updatedInput: fixed } : {}) }
+            ? { behavior: 'allow', ...(finalInput ? { updatedInput: finalInput } : {}) }
             : {
                 behavior: 'deny',
                 // Every word of this can end up spoken, so it carries no command
