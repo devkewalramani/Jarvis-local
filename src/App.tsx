@@ -66,9 +66,10 @@ const FOLLOW_UP_MS = 11000
 
 // Meeting mode phrases. Local: none of these reach the brain.
 const MEETING_START = /\b(start|begin|enter|turn on|switch to)\s+(the\s+)?meeting mode\b/i
-// Whole commands only, so "who will join the meeting tomorrow?" is a question, not a command.
-const ZOOM_JOIN = /^\W*(?:(?:please|can you|could you|go ahead and)\s+)?(?:join|get on|hop on|jump on)\s+(?:the\s+|my\s+|this\s+)?(?:zoom\s+)?(?:meeting|call|zoom)(?:\s+(?:now|please))?\W*$/i
-const ZOOM_LEAVE = /^\W*(?:(?:please|can you|could you|go ahead and)\s+)?(?:leave|drop|exit|get off|hang up)\s+(?:(?:from|off)\s+)?(?:the\s+|my\s+|this\s+)?(?:zoom\s+)?(?:meeting|call|zoom)(?:\s+(?:now|please))?\W*$/i
+// Commands, not questions: they must start with the verb ("join the meeting on my
+// calendar now") and carry no question mark ("who will join the meeting?").
+const ZOOM_JOIN = /^\W*(?:(?:please|can you|could you|go ahead and)\s+)?(?:join|get on|hop on|jump on)\s+(?:the\s+|my\s+|this\s+|our\s+)?(?:zoom\s+)?(?:meeting|call|zoom)\b[^?]{0,60}\??$/i
+const ZOOM_LEAVE = /^\W*(?:(?:please|can you|could you|go ahead and)\s+)?(?:leave|drop|exit|get off|hang up)\s+(?:(?:from|off)\s+)?(?:the\s+|my\s+|this\s+|our\s+)?(?:zoom\s+)?(?:meeting|call|zoom)\b[^?]{0,60}\??$/i
 const YES = /^\s*(yes|yeah|yep|sure|please|go ahead|do it|use it|ok(ay)?|sounds good)\b/i
 const NO = /^\s*(no|nope|don'?t|do not|not now|skip|never mind)\b/i
 const CANCEL = /\b(cancel|never mind|stop meeting mode)\b/i

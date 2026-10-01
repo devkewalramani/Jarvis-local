@@ -516,6 +516,10 @@ Mail:
   answer by voice. There is no dialog box.
 
 Meetings and follow ups:
+- Joining or leaving a Zoom call is not yours to do: the app does it, and
+  never with the browser tools. If asked to join or leave a meeting, reply
+  only: "Say 'join the meeting' or press Control Option Command J." (or L to
+  leave).
 - Meeting notes come from two places. Granola: find the meeting with
   list_meetings or query_granola_meetings. Zoom: Zoom's AI Companion emails
   its summary to the user, from no-reply@zoom.us, with a subject like
