@@ -73,6 +73,17 @@ const ZOOM_LEAVE = /^\W*(?:(?:please|can you|could you|go ahead and)\s+)?(?:leav
 const YES = /^\s*(yes|yeah|yep|sure|please|go ahead|do it|use it|ok(ay)?|sounds good)\b/i
 const NO = /^\s*(no|nope|don'?t|do not|not now|skip|never mind)\b/i
 const CANCEL = /\b(cancel|never mind|stop meeting mode)\b/i
+/**
+ * "Standby", "go to sleep", "stop listening", "that's all": back to waiting
+ * for the wake word, nothing else heard until "Hey Jarvis". Whole utterances
+ * only, so "how much sleep did I get" is a question, not a command.
+ */
+const STANDBY = new RegExp(
+  String.raw`^\W*(?:(?:ok(?:ay)?|thanks|thank you|alright|all right|jarvis)[\s,.!]*)*` +
+    String.raw`(?:(?:go\s+)?(?:back\s+)?(?:to\s+)?(?:standby|stand by|sleep)|stop listening|that'?s all|that will be all|that'?ll be all|dismissed|you'?re dismissed|you can go|be quiet|quiet|go quiet|never ?mind)` +
+    String.raw`(?:[\s,.!]*(?:now|please|thanks|thank you|jarvis|sir))*\W*$`,
+  'i',
+)
 const DRAFT_FOLLOW_UP = /\bdraft\b.*\bfollow[\s-]*up\b|\bfollow[\s-]*up\b.*\bdraft\b/i
 
 /** GET from the bridge, or null if it can't answer. */
@@ -433,7 +444,18 @@ export default function App() {
     }
   }
 
+  /** "Standby": say so, then hear nothing but the wake word. Drops an unfinished meeting setup too. */
+  const standBy = async () => {
+    clearIdle()
+    const setup = useMeeting.getState().setup
+    if (useMeeting.getState().phase === 'setup') cancelSetup()
+    // Spoken, except in a meeting on speakers, where Jarvis never talks.
+    await reply('Standing by.', setup ? setup.speak : true)
+    goDormant()
+  }
+
   const respond = async (said: string): Promise<void> => {
+    if (STANDBY.test(said)) return void standBy()
     if (await meetingTurn(said)) return
     const mine = ++turn.current
     const stale = () => mine !== turn.current

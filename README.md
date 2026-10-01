@@ -103,6 +103,12 @@ window:
 * **Security:** it loads nothing but `localhost`, grants only the microphone,
   and starts and stops all of Jarvis's services itself.
 
+**Standby.** Say "standby", "go to sleep", "stop listening" or "that's all"
+(alone, or as "Hey Jarvis, standby") and Jarvis says "Standing by" and goes
+back to waiting for the wake word, so nothing else in the room is taken as a
+request until you say "Hey Jarvis" again. Only whole commands count: "how
+much sleep did I get?" is still a question.
+
 **Meeting mode.** A timer over an agenda, for calls. You start it yourself:
 say "Hey Jarvis, start meeting mode" or press ⌃⌥⌘M. It never starts from the
 calendar on its own.
