@@ -529,9 +529,32 @@ const MEETING_KEYS = {
   // meeting mode has the wake word paused).
   join: 'Control+Alt+Command+J',
   leave: 'Control+Alt+Command+L',
+  // The spoken introduction in a Zoom call: registered only while meeting
+  // mode runs (the only time one is ready), so it isn't taken from other apps.
+  intro: 'Command+Shift+I',
+}
+
+/** Which introduction Cmd+Shift+I plays: 'full' or 'short', chosen in the menu bar. */
+const INTRO_FILE = () => path.join(app.getPath('userData'), 'intro.json')
+let introVariant = 'full'
+function loadIntroVariant() {
+  try {
+    introVariant = JSON.parse(fs.readFileSync(INTRO_FILE(), 'utf8')).variant === 'short' ? 'short' : 'full'
+  } catch {
+    introVariant = 'full'
+  }
+}
+function setIntroVariant(v) {
+  introVariant = v === 'short' ? 'short' : 'full'
+  try {
+    fs.writeFileSync(INTRO_FILE(), JSON.stringify({ variant: introVariant }))
+  } catch (err) {
+    log('could not save the intro choice:', err.message)
+  }
+  rebuildTrayMenu()
 }
 let meetingActive = false
-const sendMeetingKey = (action) => win?.webContents.send('jarvis:meeting-key', action)
+const sendMeetingKey = (action, arg) => win?.webContents.send('jarvis:meeting-key', action, arg)
 
 ipcMain.on('jarvis:meeting-active', (_e, on) => {
   meetingActive = Boolean(on)
@@ -539,6 +562,8 @@ ipcMain.on('jarvis:meeting-active', (_e, on) => {
     if (meetingActive) globalShortcut.register(MEETING_KEYS[action], () => sendMeetingKey(action))
     else globalShortcut.unregister(MEETING_KEYS[action])
   }
+  if (meetingActive) globalShortcut.register(MEETING_KEYS.intro, () => sendMeetingKey('intro', introVariant))
+  else globalShortcut.unregister(MEETING_KEYS.intro)
   log(`meeting mode ${meetingActive ? 'on' : 'off'}`)
   rebuildTrayMenu()
 })
@@ -666,8 +691,18 @@ function rebuildTrayMenu() {
         ? [
             { label: 'Next Agenda Item', accelerator: 'Control+Alt+Command+N', click: () => sendMeetingKey('next') },
             { label: 'End Meeting', accelerator: 'Control+Alt+Command+E', click: () => sendMeetingKey('end') },
+            { label: 'Play Introduction', accelerator: 'Command+Shift+I', click: () => sendMeetingKey('intro', introVariant) },
           ]
         : [{ label: 'Start Meeting Mode', accelerator: 'Control+Alt+Command+M', click: () => { win?.show(); sendMeetingKey('start') } }]),
+      { label: 'Join Zoom Meeting', accelerator: 'Control+Alt+Command+J', click: () => sendMeetingKey('join') },
+      { label: 'Leave Zoom Meeting', accelerator: 'Control+Alt+Command+L', click: () => sendMeetingKey('leave') },
+      {
+        label: 'Introduction',
+        submenu: [
+          { label: 'Full', type: 'radio', checked: introVariant === 'full', click: () => setIntroVariant('full') },
+          { label: 'Short', type: 'radio', checked: introVariant === 'short', click: () => setIntroVariant('short') },
+        ],
+      },
       { type: 'separator' },
       ...voiceMenu(),
       { type: 'separator' },
@@ -723,6 +758,7 @@ if (!app.requestSingleInstanceLock()) {
     // On failure, fail() has already put up the alert that quits.
     if (!(await ensureServices())) return
 
+    loadIntroVariant()
     createWindow()
     if (!globalShortcut.register(MEETING_KEYS.start, () => sendMeetingKey('start'))) {
       log('⌃⌥⌘M is taken by another app; start meeting mode by voice or the menu')

@@ -5,7 +5,8 @@
  *
  *   POST /zoom/join   -> join the meeting on the calendar now (voice or shortcut only)
  *   POST /zoom/leave  -> close that window and stop the camera
- *   GET  /zoom/status -> { state, detail, since }
+ *   GET  /zoom/status -> { state, detail, since, muted }
+ *   POST /zoom/intro  -> the spoken introduction (Cmd+Shift+I only; see playIntro)
  *
  * The window is its own Chrome instance with its own data folder (the Jarvis
  * profile), so it shares nothing with the user's own Chrome profiles. It is
@@ -13,18 +14,25 @@
  * port), so only this process can control it.
  *
  * Audio, by construction:
- *  - Chrome runs with --mute-audio: the call is never played out loud.
- *  - The page can see one camera, the OBS Virtual Camera, and no microphone at
- *    all: device lists are filtered and any request for audio is refused, and
- *    the microphone permission is denied for Zoom. Jarvis never listens to or
- *    records a call.
+ *  - Chrome runs with --mute-audio: the call is never played out loud, and
+ *    nothing reads what the call says. Jarvis never listens to or records a call.
+ *  - The page can see one camera, the OBS Virtual Camera, and one microphone,
+ *    BlackHole 2ch: device lists are filtered, every audio request is pinned to
+ *    BlackHole, and without BlackHole audio is refused rather than falling back
+ *    to a real microphone. Chrome's default capture device for this profile is
+ *    BlackHole too. Nothing feeds BlackHole except play-to-device, and only for
+ *    the introduction, so the room and your microphone can never reach the call
+ *    through Jarvis.
+ *  - Zoom audio is joined muted and kept muted: the watcher mutes it again
+ *    within two seconds if it is ever found unmuted outside the introduction.
  */
 
 import { spawn, execFile, execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { readdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -44,12 +52,45 @@ const OBS_SENTINELS = join(homedir(), 'Library', 'Application Support', 'obs-stu
 /** Jarvis's OBS: the instance started on the Jarvis profile, whoever launched it. Your own OBS use is untouched. */
 const JARVIS_OBS = '^/Applications/OBS.app/Contents/MacOS/OBS --profile Jarvis'
 
-/** Create the Jarvis Chrome profile on first use, named so it is recognisable. */
+/** The microphone Jarvis's Zoom window may use, and nothing else. */
+export const VOICE_DEVICE = 'BlackHole 2ch'
+const VOICE_DEVICE_UID = 'BlackHole2ch_UID'
+
+/**
+ * The Jarvis Chrome profile, named so it is recognisable, with BlackHole as
+ * its default microphone. Written before each launch (Chrome is not running).
+ */
 export function ensureProfile() {
   const prefs = join(PROFILE_DIR, 'Default', 'Preferences')
-  if (existsSync(prefs)) return
   mkdirSync(join(PROFILE_DIR, 'Default'), { recursive: true })
-  writeFileSync(prefs, JSON.stringify({ profile: { name: 'Jarvis' } }))
+  let p = {}
+  try {
+    p = JSON.parse(readFileSync(prefs, 'utf8'))
+  } catch {
+    /* first run */
+  }
+  p.profile = { ...(p.profile ?? {}), name: 'Jarvis' }
+  p.media = { ...(p.media ?? {}), default_audio_capture_device: VOICE_DEVICE_UID }
+  writeFileSync(prefs, JSON.stringify(p))
+}
+
+/** The helper that plays a file to one named device (play-to-device.swift), built on first use. */
+const HERE = dirname(fileURLToPath(import.meta.url))
+const HELPER_SRC = join(HERE, 'play-to-device.swift')
+const HELPER = join(HERE, '.bin', 'play-to-device')
+
+export async function ensureHelper() {
+  const fresh = existsSync(HELPER) && statSync(HELPER).mtimeMs >= statSync(HELPER_SRC).mtimeMs
+  if (fresh) return HELPER
+  mkdirSync(dirname(HELPER), { recursive: true })
+  await run('/usr/bin/swiftc', ['-O', HELPER_SRC, '-o', HELPER], { timeout: 180_000 })
+  return HELPER
+}
+
+/** The default output and system-sound devices, so nothing else can be playing into BlackHole. */
+async function defaultOutputs() {
+  const { stdout } = await run(await ensureHelper(), ['--defaults'], { timeout: 5000 })
+  return stdout.trim().split('\n')
 }
 
 /** Zoom's web client for a meeting link: /j/<id>?pwd=... -> app.zoom.us/wc/<id>/join?pwd=... */
@@ -63,24 +104,41 @@ export function webClientUrl(link) {
 
 /**
  * Runs in every Zoom page before its own scripts: the only camera is OBS's
- * virtual camera and there is no microphone.
+ * virtual camera and the only microphone is BlackHole. No BlackHole, no audio.
  */
 const MEDIA_GUARD = `(() => {
   const md = navigator.mediaDevices
   if (!md || md.__jarvis) return
   const CAMERA = /OBS Virtual Camera/i
+  const MIC = /^BlackHole 2ch\\b/
   const list = md.enumerateDevices.bind(md)
   const gum = md.getUserMedia.bind(md)
   let camera = null
+  let mic = null
   const find = async () => {
     const all = await list()
     camera = all.find((d) => d.kind === 'videoinput' && CAMERA.test(d.label))?.deviceId ?? camera
+    mic = all.find((d) => d.kind === 'audioinput' && MIC.test(d.label))?.deviceId ?? mic
     return all
   }
   md.enumerateDevices = async () =>
-    (await find()).filter((d) => (d.kind === 'videoinput' ? CAMERA.test(d.label) : d.kind !== 'audioinput'))
+    (await find()).filter((d) =>
+      d.kind === 'videoinput' ? CAMERA.test(d.label) : d.kind === 'audioinput' ? MIC.test(d.label) : true)
   md.getUserMedia = async (c = {}) => {
-    if (c.audio) throw new DOMException('Jarvis joins without a microphone', 'NotAllowedError')
+    if (c.audio) {
+      if (!mic) await find()
+      if (!mic) throw new DOMException('BlackHole 2ch not found; Jarvis has no other microphone', 'NotFoundError')
+      c = {
+        ...c,
+        audio: {
+          ...(typeof c.audio === 'object' ? c.audio : {}),
+          deviceId: { exact: mic },
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      }
+    }
     if (c.video) {
       if (!camera) await find()
       if (!camera) throw new DOMException('OBS Virtual Camera not found', 'NotFoundError')
@@ -119,6 +177,9 @@ const JOIN_STEP = (name) => `(() => {
       input.dispatchEvent(new Event('change', { bubbles: true }))
       return 'preview'
     }
+    // Muted on the join screen, so audio starts muted.
+    const previewMute = button(/^\\s*mute\\s*$/i)
+    if (previewMute) { previewMute.click(); return 'preview' }
     const join = button(/^\\s*join\\s*$/i)
     if (join && !join.disabled) { join.click(); return 'joining' }
     return 'preview'
@@ -127,9 +188,14 @@ const JOIN_STEP = (name) => `(() => {
   if (leave) {
     const start = button(/start (my )?video/i)
     if (start) { start.click(); return 'starting-video' }
+    const audio = button(/join (with )?(computer )?audio|join audio by computer/i)
+    if (audio) { audio.click(); return 'joining-audio' }
+    const unmuted = button(/^\\s*mute( my microphone)?\\b/i)
+    if (unmuted) { unmuted.click(); return 'muting' }
     const close = button(/^\\s*(close|got it|ok|not now|dismiss)\\s*$/i)
     if (close) close.click()
-    return button(/stop (my )?video/i) ? 'in-call' : 'in-call-no-video'
+    if (!button(/stop (my )?video/i)) return 'in-call-no-video'
+    return button(/unmute( my microphone)?\\b/i) ? 'in-call' : 'in-call-no-audio'
   }
   return 'loading'
 })()`
@@ -141,11 +207,26 @@ const JOIN_STEP = (name) => `(() => {
  */
 const CALL_STATE = `(() => {
   const page = document.body ? document.body.innerText : ''
-  if (/meeting has been ended|meeting has ended|ended by (the )?host|you have been removed|removed you from the meeting|you left the meeting/i.test(page)) return 'ended'
-  const leave = [...document.querySelectorAll('button, [role=button]')].some((b) =>
-    /^\s*leave\b|leave meeting/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')))
-  return leave ? 'in-call' : 'gone'
+  if (/meeting has been ended|meeting has ended|ended by (the )?host|you have been removed|removed you from the meeting|you left the meeting/i.test(page)) return { state: 'ended' }
+  const labels = [...document.querySelectorAll('button, [role=button]')].map((b) =>
+    ((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).trim())
+  const leave = labels.some((t) => /^\\s*leave\\b|leave meeting/i.test(t))
+  const mic = labels.some((t) => /^\\s*unmute( my microphone)?\\b/i.test(t)) ? 'muted'
+    : labels.some((t) => /^\\s*mute( my microphone)?\\b/i.test(t)) ? 'unmuted' : 'none'
+  return { state: leave ? 'in-call' : 'gone', mic }
 })()`
+
+/** Click the microphone button towards 'muted' or 'unmuted'; true if a button was there to click. */
+const MIC_CLICK = (to) => {
+  const re = to === 'muted' ? String.raw`/^\s*mute( my microphone)?\b/i` : String.raw`/^\s*unmute( my microphone)?\b/i`
+  return `(() => {
+  const re = ${re}
+  const b = [...document.querySelectorAll('button, [role=button]')].find((b) =>
+    re.test(((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')).trim()))
+  if (b) b.click()
+  return !!b
+})()`
+}
 
 const PROGRESS = {
   launching: 'Opening Zoom.',
@@ -257,6 +338,7 @@ const setStatus = (state, extra = '') => {
     detail: PROGRESS[state] ?? extra,
     since: status.state === state ? status.since : Date.now(),
     ...(status.devices && state !== 'left' ? { devices: status.devices } : {}),
+    ...(session ? { muted: status.muted ?? null } : {}),
   }
 }
 
@@ -299,7 +381,8 @@ export async function joinZoom(link) {
   try {
     for (const origin of ZOOM_ORIGINS) {
       await pipe.send('Browser.setPermission', { permission: { name: 'camera' }, setting: 'granted', origin })
-      await pipe.send('Browser.setPermission', { permission: { name: 'microphone' }, setting: 'denied', origin })
+      // Granted only because BlackHole is the one microphone the page can reach (MEDIA_GUARD).
+      await pipe.send('Browser.setPermission', { permission: { name: 'microphone' }, setting: 'granted', origin })
     }
     const { targetInfos } = await pipe.send('Target.getTargets')
     const page = targetInfos.find((t) => t.type === 'page')
@@ -333,6 +416,8 @@ async function stepUntilJoined(s) {
       }
       if (state === 'ended' || state === 'invalid') return void endCall(s, state)
       if (state === 'in-call' && ++inCallFor >= 5) return void watchCall(s) // settled: stop touching the page
+      // Without BlackHole there is no audio to join: still watch the call.
+      if (state === 'in-call-no-audio' && ++inCallFor >= 20) return void watchCall(s)
     } catch {
       /* navigating; try again */
     }
@@ -342,19 +427,87 @@ async function stepUntilJoined(s) {
 
 /** In the call: watch (read only) until it ends, then leave on our own. */
 async function watchCall(s) {
+  s.watching = true
   let gone = 0
   while (!s.stop && session === s) {
     await new Promise((r) => setTimeout(r, 2000))
     if (s.stop || session !== s) return
     try {
       const { result } = await s.pipe.send('Runtime.evaluate', { expression: CALL_STATE, returnByValue: true }, s.sessionId)
-      const state = result?.value
+      const { state, mic } = result?.value ?? {}
       if (state === 'ended') return void endCall(s, 'ended')
       gone = state === 'gone' ? gone + 1 : 0
+      // Muted except during the introduction: found unmuted, mute again.
+      if (mic === 'unmuted' && !s.intro) {
+        console.log('[zoom] microphone found unmuted outside the introduction; muting')
+        await s.pipe.send('Runtime.evaluate', { expression: MIC_CLICK('muted'), returnByValue: true }, s.sessionId)
+      }
+      status.muted = mic === 'muted' ? true : mic === 'unmuted' ? false : null
       if (gone >= 5) return void endCall(s, 'ended') // no meeting controls for ten seconds
     } catch {
       if (++gone >= 5) return void endCall(s, 'ended')
     }
+  }
+}
+
+/** The microphone's state in the Zoom page: 'muted', 'unmuted' or 'none' (audio not joined). */
+async function micState(s) {
+  const { result } = await s.pipe.send('Runtime.evaluate', { expression: CALL_STATE, returnByValue: true }, s.sessionId)
+  return result?.value?.mic ?? 'none'
+}
+
+/** Click towards `to` and wait up to three seconds for Zoom to show it; true if it did. */
+async function setMic(s, to) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await s.pipe.send('Runtime.evaluate', { expression: MIC_CLICK(to), returnByValue: true }, s.sessionId)
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 250))
+      if ((await micState(s)) === to) return true
+    }
+  }
+  return false
+}
+
+/**
+ * The introduction, on Cmd+Shift+I only: unmute Jarvis's Zoom window, play the
+ * prepared file to BlackHole, mute again, and verify Zoom shows it muted.
+ * Refuses (and plays nothing) unless Jarvis is in the call with its audio
+ * joined, BlackHole is present, and neither the default output nor system
+ * sounds go to BlackHole, so nothing but the introduction can reach the call.
+ */
+export async function playIntro(file) {
+  const s = session
+  if (!s || !['in-call', 'in-call-no-audio'].includes(status.state) && !s.watching)
+    return { ok: false, message: "I'm not in a call." }
+  if (s.intro) return { ok: false, message: 'The introduction is already playing.' }
+  const outs = await defaultOutputs().catch(() => [])
+  if (outs.some((d) => d.includes('BlackHole')))
+    return { ok: false, message: 'Your Mac is sending its sound to BlackHole. Change the output in Sound settings first.' }
+  if ((await micState(s)) === 'none') return { ok: false, message: "My Zoom audio isn't connected, so I can't speak." }
+
+  s.intro = true
+  let played = false
+  try {
+    if (!(await setMic(s, 'unmuted'))) return { ok: false, message: "Zoom didn't let me unmute. The host may have muted me." }
+    console.log('[zoom] introduction: unmuted, playing')
+    await run(await ensureHelper(), [VOICE_DEVICE, file], { timeout: 90_000 })
+    played = true
+    await new Promise((r) => setTimeout(r, 400)) // let the last syllable through
+  } catch (err) {
+    console.error(`[zoom] introduction failed: ${err.message}`)
+  } finally {
+    const muted = await setMic(s, 'muted')
+    s.intro = false
+    status.muted = muted
+    console.log(`[zoom] introduction ${played ? 'played' : 'not played'}; muted again: ${muted ? 'verified' : 'NOT VERIFIED'}`)
+    s.introResult = { ok: played, muted }
+  }
+  const { muted } = s.introResult
+  return {
+    ok: played && muted,
+    played,
+    muted,
+    message: !played ? "The introduction didn't play." : muted ? 'Introduced. Muted again, verified.' : "Introduced, but I couldn't verify I'm muted. Check Zoom now.",
   }
 }
 
@@ -399,3 +552,6 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
     process.exit(0)
   })
 }
+
+/** For tests: the scripts run inside the Zoom page. */
+export const __pageScripts = { MEDIA_GUARD, JOIN_STEP, CALL_STATE, MIC_CLICK }

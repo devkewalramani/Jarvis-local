@@ -76,9 +76,14 @@ const CANCEL = /\b(cancel|never mind|stop meeting mode)\b/i
 const DRAFT_FOLLOW_UP = /\bdraft\b.*\bfollow[\s-]*up\b|\bfollow[\s-]*up\b.*\bdraft\b/i
 
 /** GET from the bridge, or null if it can't answer. */
-async function bridgePost<T>(path: string): Promise<T | null> {
+async function bridgePost<T>(path: string, body?: unknown, timeoutMs = 30000): Promise<T | null> {
   try {
-    const res = await fetch(`${BRIDGE_HTTP_URL}${path}`, { method: 'POST', signal: AbortSignal.timeout(30000) })
+    const res = await fetch(`${BRIDGE_HTTP_URL}${path}`, {
+      method: 'POST',
+      // text/plain keeps this a simple request: no CORS preflight.
+      ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'content-type': 'text/plain' } }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
     return res.ok ? ((await res.json()) as T) : null
   } catch {
     return null
@@ -202,6 +207,9 @@ export default function App() {
 
   const runMeeting = async (items: AgendaItem[], title: string | null, headphones: boolean) => {
     startMeeting(items, title, headphones)
+    // The spoken introduction for a Zoom call, generated now so Cmd+Shift+I
+    // plays it at once. Played only on that key, never automatically.
+    void bridgePost('/zoom/intro/prepare', { items: items.map(({ title, minutes }) => ({ title, minutes })) }, 120000)
     const first = items[0]
     // Spoken only into headphones: Jarvis never speaks into the call.
     await reply(
@@ -215,6 +223,7 @@ export default function App() {
   const finishMeeting = async () => {
     const summary = endMeeting()
     if (!summary) return
+    void bridgePost('/zoom/intro/prepare', { items: [] })
     DESKTOP?.setMeetingActive?.(false)
     await resumeListening()
     const minutes = Math.max(1, Math.round((summary.endedAt - summary.startedAt) / 60000))
@@ -283,6 +292,16 @@ export default function App() {
     } finally {
       watching.current = false
     }
+  }
+
+  /**
+   * Cmd+Shift+I: the spoken introduction in the Zoom call (the bridge unmutes
+   * Jarvis's Zoom window, plays it to BlackHole, mutes and verifies). Shown,
+   * never spoken here: the result is for the user's eyes only.
+   */
+  const playIntro = async (variant: 'full' | 'short') => {
+    const res = await bridgePost<{ ok: boolean; message?: string }>('/zoom/intro', { variant }, 120000)
+    await reply(res?.message ?? "The introduction didn't play.", false)
   }
 
   /** "Leave the meeting", by voice or ⌃⌥⌘L: close Jarvis's Zoom window, stop the camera, end meeting mode. */
@@ -396,10 +415,11 @@ export default function App() {
   }
 
   /** Shortcuts: start (⌃⌥⌘M), next item (⌃⌥⌘N), end (⌃⌥⌘E). */
-  const meetingKey = (action: 'start' | 'next' | 'end' | 'join' | 'leave') => {
+  const meetingKey = (action: 'start' | 'next' | 'end' | 'join' | 'leave' | 'intro', arg?: string) => {
     const m = useMeeting.getState()
     if (action === 'join') return void joinZoom()
     if (action === 'leave') return void leaveZoom()
+    if (action === 'intro') return void playIntro(arg === 'short' ? 'short' : 'full')
     if (action === 'start') {
       if (m.phase === 'off' && store.getState().phase !== 'offline' && store.getState().phase !== 'boot') {
         void startMeetingSetup('')
@@ -891,7 +911,7 @@ export default function App() {
 
   useEffect(() => {
     // Global shortcuts from the desktop app (they work while the call has focus).
-    DESKTOP?.onMeetingKey?.((action) => meetingKey(action))
+    DESKTOP?.onMeetingKey?.((action, arg) => meetingKey(action, arg))
     // Test aid (JARVIS_DESKTOP_MEETING_TEST): run a meeting with a fixed agenda.
     DESKTOP?.onMeetingTest?.((agenda) => {
       void (async () => {

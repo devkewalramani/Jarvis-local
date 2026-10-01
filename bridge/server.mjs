@@ -33,7 +33,8 @@ import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { prepareDraft } from './signature.mjs'
 import { audioOutput, meetingNow, publicMeeting, zoomLinkIn, zoomLinkNow } from './meeting.mjs'
-import { joinZoom, leaveZoom, zoomStatus } from './zoom.mjs'
+import { ensureHelper, joinZoom, leaveZoom, playIntro, zoomStatus } from './zoom.mjs'
+import { clearIntro, introFile, introState, markPlayed, prepareIntro } from './intro.mjs'
 
 /** What the meeting tile may show; see /meeting/state. `call` is set by the bridge itself. */
 let tileState = { ...publicMeeting({}), call: { introReady: false, muted: null } }
@@ -1077,8 +1078,12 @@ const handleRequest = async (req, res) => {
   // meeting title or anything else from the page.
   if (req.url === '/meeting/state') {
     if (req.method === 'GET') {
+      // The status line: the introduction is ready (prepared, not yet played),
+      // and Zoom's own mute state for Jarvis while it is in a call.
+      const intro = introState()
+      const call = { introReady: intro.ready && !intro.played, muted: zoomStatus().muted ?? null }
       res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
-      return res.end(JSON.stringify(tileState))
+      return res.end(JSON.stringify({ ...tileState, call }))
     }
     if (req.method === 'POST') {
       let raw = ''
@@ -1103,6 +1108,41 @@ const handleRequest = async (req, res) => {
     res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
     return res.end(JSON.stringify(zoomStatus()))
   }
+  // The spoken introduction. Prepared (both variants, with Kokoro) when meeting
+  // mode starts; played only on Cmd+Shift+I.
+  if ((req.url === '/zoom/intro/prepare' || req.url === '/zoom/intro') && req.method === 'POST') {
+    let raw = ''
+    for await (const chunk of req) {
+      raw += chunk
+      if (raw.length > 16 * 1024) break
+    }
+    let body = {}
+    try {
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      /* no body */
+    }
+    let result
+    try {
+      if (req.url === '/zoom/intro/prepare') {
+        if (!Array.isArray(body.items) || !body.items.length) clearIntro()
+        else {
+          void ensureHelper().catch((err) => console.error(`[intro] helper: ${err.message}`))
+          result = await prepareIntro(body.items)
+        }
+        result = { ok: true, ...(result ?? introState()) }
+      } else {
+        const intro = await introFile(body.variant === 'short' ? 'short' : 'full')
+        result = intro ? await playIntro(intro.file) : { ok: false, message: 'No introduction is ready. Start meeting mode first.' }
+        if (result.played) markPlayed()
+      }
+    } catch (err) {
+      result = { ok: false, message: String(err?.message ?? err) }
+    }
+    res.writeHead(200, { ...cors, 'content-type': 'application/json' })
+    return res.end(JSON.stringify(result))
+  }
+
   if ((req.url === '/zoom/join' || req.url === '/zoom/leave') && req.method === 'POST') {
     let raw = ''
     for await (const chunk of req) {

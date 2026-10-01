@@ -161,6 +161,26 @@ that window, stops the camera and ends meeting mode. It never joins on its own.
 * **One time.** If Zoom asks guests to sign in, run
   `node scripts/zoom-profile.mjs` and sign in to Zoom in that window.
 
+**Spoken introduction.** When meeting mode starts, Jarvis generates (with
+Kokoro) a short introduction from the agenda: "Good afternoon. I'm Jarvis,
+Sam's AI assistant. I'm here only to keep time on today's agenda: ... I'm not
+recording or transcribing this call. I'll stay muted from here...", plus a
+shorter variant chosen under Introduction in the menu bar. It plays only when
+you press Cmd+Shift+I (registered only while meeting mode runs): Jarvis
+unmutes its Zoom window, plays the introduction, mutes again and checks that
+Zoom shows it muted, and tells you the result. The tile shows INTRO READY and
+MUTED. Set your name with `JARVIS_OWNER_NAME` in `.env`.
+
+* **Its voice only.** Jarvis's Zoom window has one microphone, BlackHole 2ch
+  (a virtual audio device, `brew install --cask blackhole-2ch`), and nothing
+  feeds BlackHole except the introduction, played by a small helper that
+  plays one file to one named device. Your microphone and the room never
+  reach the call through Jarvis. Without BlackHole the window has no
+  microphone at all, and if your Mac's output or alert sound is set to
+  BlackHole the introduction refuses to play.
+* **Muted otherwise.** Zoom audio is joined muted, and if Jarvis is ever found
+  unmuted outside the introduction it mutes itself again within two seconds.
+
 ## Hardware
 
 Tested on one machine: a **MacBook Pro with an M4 Max and 36 GB of memory**, on

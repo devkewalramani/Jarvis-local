@@ -76,3 +76,6 @@ desktop-theme/ubersicht/jarvis-hud/config.json
 
 # Third party code fetched locally (thunderbird-mcp v0.7.6 bridge)
 vendor/
+
+# Built locally by the bridge (play-to-device helper)
+bridge/.bin/
