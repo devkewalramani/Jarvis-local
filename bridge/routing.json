@@ -7,7 +7,7 @@
     "claude = Claude Code on your Claude subscription (never your API key).",
     "acknowledge: what Jarvis says out loud the moment a request routes to Claude, before the answer. First matching pattern wins; otherwise acknowledgeDefault.",
     "refuse: requests to send or forward mail get this exact reply from the bridge itself (logged as brain 'canned'), unless they also say draft or save. Checked before everything else.",
-    "Anything about a meeting, a call, notes or a follow up goes to Claude: only Claude can read Granola."
+    "Anything about a meeting, a call, a Zoom, notes or a follow up goes to Claude: only Claude can read Granola and Zoom."
   ],
   "default": "claude",
   "refuse": {
@@ -35,7 +35,8 @@
     "\\bmeetings?\\b",
     "\\bcalls?\\b",
     "\\bnotes?\\b",
-    "\\bfollow[\\s-]*ups?\\b"
+    "\\bfollow[\\s-]*ups?\\b",
+    "\\bzoom\\b"
   ],
   "local": [
     "\\bcalendar\\b",

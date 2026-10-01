@@ -17,7 +17,7 @@
 
 import {
   assertNoApiKey, claudeEnv, localEnv, LOCAL_MODEL, LOCAL_URL, logBrain, route,
-  thunderbirdAllows, thunderbirdDisallowed, granolaAllows, fixCalendarInput, localiseTimesHook, scopeReplyDraft, reviewReplyInput,
+  thunderbirdAllows, thunderbirdDisallowed, granolaAllows, zoomAllows, fixCalendarInput, localiseTimesHook, scopeReplyDraft, reviewReplyInput,
 } from './brains.mjs'
 import { WebSocketServer } from 'ws'
 import { query } from '@anthropic-ai/claude-agent-sdk'
@@ -288,8 +288,9 @@ function decideTool(name, brain = 'claude') {
     // Mail and calendar: an explicit allowlist that JARVIS_ALLOW_WRITES does
     // not widen. saveDraft is the one write, and only a draft — nothing sends.
     if (server === 'thunderbird') return thunderbirdAllows(mcpToolOf(name), brain)
-    // Meeting notes: Granola's read tools only, and only for Claude.
+    // Meeting notes: Granola's and Zoom's read tools only, and only for Claude.
     if (server === 'granola') return granolaAllows(mcpToolOf(name), brain)
+    if (server === 'zoom') return zoomAllows(mcpToolOf(name), brain)
 
     // The HUD, and the interface controls beside it. Both run in this process
     // and draw on our own screen, so neither is something to withhold —
@@ -512,10 +513,19 @@ Mail:
   answer by voice. There is no dialog box.
 
 Meetings and follow ups:
-- Meeting notes live in Granola. Find the meeting with list_meetings or
-  query_granola_meetings, using the date and time at the top of the request
-  for "this afternoon", "yesterday" and the like. "My last meeting" is the
-  most recent one that has already ended.
+- Meeting notes live in Granola, and for Zoom calls also in Zoom. Find the
+  meeting with list_meetings or query_granola_meetings (Granola) and
+  search_meetings or recordings_list (Zoom), using the date and time at the
+  top of the request for "this afternoon", "yesterday" and the like. "My last
+  meeting" is the most recent one that has already ended.
+- Zoom. When the request mentions Zoom ("my Zoom with Sam"), look in Zoom
+  first. Use Zoom's AI summary (get_meeting_assets) first, and fetch the
+  transcript (get_recording_resource) only if the summary lacks the decisions
+  or the action items. If Zoom has the meeting but no summary or transcript
+  yet, say exactly "Zoom hasn't posted the notes yet." and stop: never guess.
+- Two sources for one meeting. If Zoom and Granola both have it, use Zoom's
+  notes for a Zoom call and Granola's otherwise. Always say which source you
+  used, Zoom or Granola, when you report the draft.
 - If more than one meeting matches, do not guess: name them out loud, by time
   and who was there, in one sentence, ask which one, and stop.
 - Read the notes and summary first (get_meetings). Fetch the transcript with

@@ -147,6 +147,22 @@ export const GRANOLA_ALLOWED = new Set([
 
 export const granolaAllows = (tool, brain) => brain !== 'local' && GRANOLA_ALLOWED.has(tool)
 
+// ---------------------------------------------------------------------------
+// Zoom tool policy
+// ---------------------------------------------------------------------------
+
+/**
+ * Zoom's official MCP server: read tools only (search meetings, list
+ * recordings, meeting assets and AI summary, recording resources such as the
+ * transcript), and only for Claude. Everything else, including the tools that
+ * create files or docs and any tool Zoom adds later, is denied.
+ */
+export const ZOOM_ALLOWED = new Set([
+  'search_meetings', 'recordings_list', 'get_meeting_assets', 'get_recording_resource',
+])
+
+export const zoomAllows = (tool, brain) => brain !== 'local' && ZOOM_ALLOWED.has(tool)
+
 export const thunderbirdDisallowed = (brain) =>
   THUNDERBIRD_KNOWN.filter((t) => !thunderbirdAllows(t, brain)).map(
     (t) => `mcp__thunderbird__${t}`,
