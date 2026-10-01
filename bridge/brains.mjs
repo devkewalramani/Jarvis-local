@@ -148,20 +148,37 @@ export const GRANOLA_ALLOWED = new Set([
 export const granolaAllows = (tool, brain) => brain !== 'local' && GRANOLA_ALLOWED.has(tool)
 
 // ---------------------------------------------------------------------------
-// Zoom tool policy
+// Which notes a follow-up came from
 // ---------------------------------------------------------------------------
 
-/**
- * Zoom's official MCP server: read tools only (search meetings, list
- * recordings, meeting assets and AI summary, recording resources such as the
- * transcript), and only for Claude. Everything else, including the tools that
- * create files or docs and any tool Zoom adds later, is denied.
- */
-export const ZOOM_ALLOWED = new Set([
-  'search_meetings', 'recordings_list', 'get_meeting_assets', 'get_recording_resource',
-])
+const ZOOM_SUMMARY = /"author"\s*:\s*"[^"]*<no-reply@zoom\.us>"/i
+const ZOOM_SUBJECT = /"subject"\s*:\s*"(?:Meeting assets for|Meeting summary for)/i
+const GRANOLA_NOTES = new Set(['get_meetings', 'get_meeting_transcript', 'query_granola_meetings'])
 
-export const zoomAllows = (tool, brain) => brain !== 'local' && ZOOM_ALLOWED.has(tool)
+/**
+ * The meeting notes a tool result carried: 'zoom' for a Zoom AI Companion
+ * summary email read from Thunderbird, 'granola' for Granola's notes, or null.
+ */
+export function notesSource(tool, resultText = '') {
+  if (tool === 'mcp__thunderbird__getMessage') {
+    return ZOOM_SUMMARY.test(resultText) && ZOOM_SUBJECT.test(resultText) ? 'zoom' : null
+  }
+  const m = /^mcp__granola__(.+)$/.exec(tool)
+  return m && GRANOLA_NOTES.has(m[1]) ? 'granola' : null
+}
+
+/**
+ * A sentence naming the source, for a turn that drafted a follow-up and whose
+ * answer didn't already say where the notes came from; '' otherwise. Zoom wins
+ * when both were read, as the persona prefers it for Zoom calls.
+ */
+export function sourceNote(answer, sources, tools) {
+  const drafted = tools.some((t) => /^mcp__thunderbird__(saveDraft|replyToMessage)$/.test(t))
+  if (!drafted) return ''
+  if (sources.has('zoom')) return /zoom(?:'s)? (?:email|summary)/i.test(answer) ? '' : ' The notes came from the Zoom email.'
+  if (sources.has('granola')) return /granola/i.test(answer) ? '' : ' The notes came from Granola.'
+  return ''
+}
 
 export const thunderbirdDisallowed = (brain) =>
   THUNDERBIRD_KNOWN.filter((t) => !thunderbirdAllows(t, brain)).map(
