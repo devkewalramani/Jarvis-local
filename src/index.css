@@ -2093,3 +2093,34 @@ html.desktop[data-backdrop='clear'] .corner { display: none; }
    the wake word and the microphone are off until the meeting ends. */
 html.meeting-on .log,
 html.meeting-on .hud-bottom { display: none; }
+
+/* -------------------------------------------------------- meeting tile (/tile) */
+/* 1280x720, captured by OBS as Jarvis's camera. Opaque: a camera has no alpha. */
+html.tile-page, html.tile-page body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: var(--bg); }
+.tile { --m: var(--interface); position: relative; width: 1280px; height: 720px; background: var(--bg); color: var(--interface); }
+.tile-amber { --m: #ffb020; }
+.tile-red { --m: #ff4d4d; }
+.tile-stage { position: absolute; left: 0; top: 0; width: 1280px; height: 560px; }
+.tile-stage .scene { position: absolute; inset: 0; }
+.tile-clock {
+  font-family: 'JetBrains Mono', monospace; font-size: 44px; letter-spacing: 0.04em; color: var(--m);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--m) 45%, transparent);
+}
+.tile-red .tile-clock { animation: meetingBlink 1s steps(2, start) infinite; }
+.tile-label {
+  position: absolute; left: 40px; top: 30px; font-size: 18px; font-weight: 600; letter-spacing: 0.42em;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--interface) 60%, transparent);
+}
+.tile-strip { position: absolute; left: 0; right: 0; top: 548px; text-align: center; }
+.tile-item {
+  font-size: 40px; font-weight: 600; color: var(--m); letter-spacing: 0.04em; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; padding: 0 80px;
+}
+.tile-idle { color: var(--interface); opacity: 0.8; letter-spacing: 0.3em; text-transform: uppercase; font-size: 28px; }
+.tile-left { margin-top: 4px; display: flex; justify-content: center; align-items: baseline; gap: 14px; }
+.tile-left-word { font-size: 18px; letter-spacing: 0.3em; text-transform: uppercase; color: #eaf9ff; opacity: 0.8; }
+.tile-count { margin-left: 22px; font-size: 16px; letter-spacing: 0.24em; text-transform: uppercase; opacity: 0.6; color: var(--interface); }
+.tile-status {
+  position: absolute; right: 40px; top: 32px; font-size: 14px; letter-spacing: 0.3em; color: var(--interface);
+  padding: 6px 12px; border: 1px solid color-mix(in srgb, var(--interface) 50%, transparent); border-radius: 3px;
+}

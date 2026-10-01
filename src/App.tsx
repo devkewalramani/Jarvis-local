@@ -778,6 +778,20 @@ export default function App() {
     document.documentElement.classList.toggle('meeting-on', meetingPhase === 'running')
   }, [meetingPhase])
 
+  // The meeting tile (/tile, the camera Jarvis shows a call) follows meeting
+  // mode through the bridge. Only the agenda and the timer are sent.
+  useEffect(() => {
+    const share = (m: ReturnType<typeof useMeeting.getState>) => {
+      const body = JSON.stringify({ phase: m.phase, items: m.items, index: m.index, itemStartedAt: m.itemStartedAt })
+      // text/plain keeps this a simple request: no CORS preflight.
+      void fetch(`${BRIDGE_HTTP_URL}/meeting/state`, { method: 'POST', body, headers: { 'content-type': 'text/plain' } }).catch(() => {})
+    }
+    share(useMeeting.getState())
+    return useMeeting.subscribe((m, prev) => {
+      if (m.phase !== prev.phase || m.index !== prev.index || m.itemStartedAt !== prev.itemStartedAt || m.items !== prev.items) share(m)
+    })
+  }, [])
+
   useEffect(() => {
     // Global shortcuts from the desktop app (they work while the call has focus).
     DESKTOP?.onMeetingKey?.((action) => meetingKey(action))

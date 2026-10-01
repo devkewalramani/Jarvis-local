@@ -32,7 +32,10 @@ import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { prepareDraft } from './signature.mjs'
-import { audioOutput, meetingNow } from './meeting.mjs'
+import { audioOutput, meetingNow, publicMeeting } from './meeting.mjs'
+
+/** What the meeting tile may show; see /meeting/state. `call` is set by the bridge itself. */
+let tileState = { ...publicMeeting({}), call: { introReady: false, muted: null } }
 
 // Before anything else: Jarvis never runs where it could bill an API key.
 assertNoApiKey()
@@ -1060,6 +1063,31 @@ const handleRequest = async (req, res) => {
       return res.end(JSON.stringify(req.url === '/meeting/now'
         ? { event: null, agenda: [], error: String(err?.message ?? err) }
         : { name: null, headphones: false, error: String(err?.message ?? err) }))
+    }
+  }
+
+  // The meeting tile (/tile, shown to the call through OBS) follows meeting
+  // mode through this: the Jarvis page posts its public state, the tile polls
+  // it. Only the agenda and the timer pass through, never a transcript, a
+  // meeting title or anything else from the page.
+  if (req.url === '/meeting/state') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
+      return res.end(JSON.stringify(tileState))
+    }
+    if (req.method === 'POST') {
+      let raw = ''
+      for await (const chunk of req) {
+        raw += chunk
+        if (raw.length > 16 * 1024) break
+      }
+      try {
+        tileState = { ...publicMeeting(JSON.parse(raw)), call: tileState.call }
+        res.writeHead(204, cors)
+      } catch {
+        res.writeHead(400, cors)
+      }
+      return res.end()
     }
   }
 

@@ -124,3 +124,20 @@ export async function audioOutput() {
     headphones: HEADPHONE_NAME.test(name) || extra.includes(name.toLowerCase()),
   }
 }
+
+/**
+ * The part of meeting mode the tile may show to a call: whether a meeting is
+ * running, its agenda items (title and minutes) and the timer. Everything is
+ * re-validated here, so whatever the page sends, nothing else gets through.
+ */
+export function publicMeeting(m) {
+  const running = m?.phase === 'running' && Array.isArray(m.items) && m.items.length > 0
+  if (!running) return { phase: 'off', items: [], index: 0, itemStartedAt: 0 }
+  const items = m.items.slice(0, 20).map((i) => ({
+    title: String(i?.title ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 60),
+    minutes: Math.max(0, Math.min(240, Number(i?.minutes) || 0)),
+  }))
+  const index = Math.max(0, Math.min(items.length - 1, Math.floor(Number(m.index) || 0)))
+  const itemStartedAt = Number(m.itemStartedAt) || Date.now()
+  return { phase: 'running', items, index, itemStartedAt }
+}

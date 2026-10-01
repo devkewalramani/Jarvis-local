@@ -128,6 +128,22 @@ calendar on its own.
   offer is shown, and "Hey Jarvis, draft the follow up" (within 30 minutes)
   drafts it with the meeting's title and agenda.
 
+**Meeting tile.** What Jarvis shows a call as its camera: a 1280x720 page at
+`http://localhost:5173/tile` with the reactor, the current agenda item and its
+time left, a small "J.A.R.V.I.S." label and a status line. It follows meeting
+mode live through the bridge's `/meeting/state`, which carries only the agenda
+and the timer: never a transcript, a meeting title or anything else.
+
+* **Camera.** OBS Studio (`brew install --cask obs`) shows the tile through its
+  virtual camera. `node scripts/obs-setup.mjs` writes a "Jarvis" profile and
+  scene (one browser source, no audio sources at all) without touching any
+  other OBS profile. Start it with `open -a OBS --args --profile Jarvis
+  --collection Jarvis --scene Jarvis --startvirtualcam`.
+* **One time.** On first launch click Continue in OBS's permissions dialog
+  without granting anything, then allow "OBS Virtual Camera" under System
+  Settings, General, Login Items & Extensions, Camera Extensions. If the camera
+  then shows OBS's placeholder, stop and start the virtual camera once in OBS.
+
 ## Hardware
 
 Tested on one machine: a **MacBook Pro with an M4 Max and 36 GB of memory**, on
