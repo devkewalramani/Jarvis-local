@@ -32,6 +32,7 @@ import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { prepareDraft } from './signature.mjs'
+import { audioOutput, meetingNow } from './meeting.mjs'
 
 // Before anything else: Jarvis never runs where it could bill an API key.
 assertNoApiKey()
@@ -1017,6 +1018,21 @@ const handleRequest = async (req, res) => {
            String(err?.message ?? 'unknown error').replace(/[<&]/g, '')
          }`,
       )
+    }
+  }
+
+  // Meeting mode (started only by the user, by voice or shortcut): the meeting
+  // happening now with its invite agenda, and whether the output is headphones.
+  if (req.method === 'GET' && (req.url === '/meeting/now' || req.url === '/audio-output')) {
+    try {
+      const body = req.url === '/meeting/now' ? await meetingNow() : await audioOutput()
+      res.writeHead(200, { ...cors, 'content-type': 'application/json' })
+      return res.end(JSON.stringify(body))
+    } catch (err) {
+      res.writeHead(200, { ...cors, 'content-type': 'application/json' })
+      return res.end(JSON.stringify(req.url === '/meeting/now'
+        ? { event: null, agenda: [], error: String(err?.message ?? err) }
+        : { name: null, headphones: false, error: String(err?.message ?? err) }))
     }
   }
 

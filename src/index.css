@@ -2062,3 +2062,34 @@ html.desktop[data-backdrop='clear'] .brand-mark {
 /* Clear backdrop: no corner brackets, so the window has no visible edge.
    Frosted and Dark keep them. */
 html.desktop[data-backdrop='clear'] .corner { display: none; }
+
+/* -- Meeting mode ------------------------------------------------------- */
+.meeting { position: fixed; inset: 0; pointer-events: none; z-index: 6; --m: var(--interface); }
+.meeting-amber { --m: #ffb020; }
+.meeting-red { --m: #ff4d4d; }
+.meeting-centre {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  text-align: center; color: var(--m);
+  text-shadow: 0 0 2px rgba(0, 0, 0, 1), 0 0 10px rgba(0, 0, 0, 0.9), 0 0 24px color-mix(in srgb, var(--m) 45%, transparent);
+}
+.meeting-clock { font-family: 'JetBrains Mono', monospace; font-size: clamp(42px, 7vh, 96px); letter-spacing: 0.04em; line-height: 1; }
+.meeting-centre-label { margin-top: 10px; font-size: 12px; letter-spacing: 0.3em; text-transform: uppercase; opacity: 0.9; }
+.meeting-red .meeting-clock { animation: meetingBlink 1s steps(2, start) infinite; }
+@keyframes meetingBlink { 50% { opacity: 0.45; } }
+/* Below the rings, where the transcript usually sits (see .log). */
+.meeting-strip {
+  position: absolute; left: 50%; top: calc(50% + 35vh); transform: translateX(-50%);
+  width: min(560px, 70vw); color: var(--interface); text-transform: uppercase; letter-spacing: 0.16em;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 1), 0 0 8px rgba(0, 0, 0, 0.85);
+}
+.meeting-row { display: flex; gap: 14px; align-items: baseline; font-size: 13px; line-height: 1.6; }
+.meeting-tag { flex: 0 0 96px; font-size: 10px; letter-spacing: 0.3em; opacity: 0.8; }
+.meeting-item { flex: 1; color: #eaf9ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: none; letter-spacing: 0.04em; }
+.meeting-row:first-child .meeting-item { color: var(--m); }
+.meeting-mono { font-family: 'JetBrains Mono', monospace; letter-spacing: 0.06em; }
+.meeting-dim { opacity: 0.72; }
+.meeting-foot { margin-top: 6px; font-size: 10px; letter-spacing: 0.14em; opacity: 0.8; text-transform: none; }
+/* The transcript makes way for the meeting strip, and the wake word hint goes:
+   the wake word and the microphone are off until the meeting ends. */
+html.meeting-on .log,
+html.meeting-on .hud-bottom { display: none; }

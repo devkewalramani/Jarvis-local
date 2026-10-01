@@ -103,6 +103,31 @@ window:
 * **Security:** it loads nothing but `localhost`, grants only the microphone,
   and starts and stops all of Jarvis's services itself.
 
+**Meeting mode.** A timer over an agenda, for calls. You start it yourself:
+say "Hey Jarvis, start meeting mode" or press ⌃⌥⌘M. It never starts from the
+calendar on its own.
+
+* **Agenda.** If a calendar event is happening now and its invite lists timed
+  items ("Pricing, 15 min"), Jarvis offers that agenda. Otherwise he asks for
+  items and minutes, or takes them with the command: "start meeting mode,
+  agenda: pricing 15, timeline 10, next steps 5".
+* **On screen.** The current item's countdown sits in the middle of the
+  reactor, with the current item, the next item and the total time left below
+  the rings. The ring pulses amber with two minutes left on an item and red at
+  zero, counting the overrun.
+* **Private by design.** While it runs the microphone is closed completely:
+  no wake word, no recording, no transcription. It is time based only.
+* **Never into the call.** A nudge is a short tone, and only when the output
+  device is headphones by name (add yours with `JARVIS_HEADPHONE_NAMES`);
+  otherwise nudges are visual only. Setup questions are shown rather than
+  spoken when a meeting is already under way on speakers.
+* **Shortcuts.** ⌃⌥⌘N for the next item, ⌃⌥⌘E to end. In the desktop app
+  they work while the call has focus, and are registered only during a
+  meeting. When it ends, the microphone comes back and Jarvis offers to draft
+  the follow up: in headphones he asks and a "yes" answers; on speakers the
+  offer is shown, and "Hey Jarvis, draft the follow up" (within 30 minutes)
+  drafts it with the meeting's title and agenda.
+
 ## Hardware
 
 Tested on one machine: a **MacBook Pro with an M4 Max and 36 GB of memory**, on

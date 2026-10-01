@@ -7,6 +7,7 @@ import { Effects } from './Effects'
 import { Pointer } from './Pointer'
 import { GestureGuide } from './GestureGuide'
 import { BRIDGE_HTTP_URL } from '../config'
+import { useMeeting } from '../lib/meeting'
 
 const statusText: Record<Phase, string> = {
   offline: 'OFFLINE',
@@ -201,6 +202,7 @@ export function Hud() {
   }, [turns, phase])
   const activeTool = useStore((s) => s.activeTool)
   const connected = useStore((s) => s.connected)
+  const meetingPhase = useMeeting((m) => m.phase)
   const systems = useSystems(connected)
   const error = useStore((s) => s.error)
   const level = useStore((s) => s.level)
@@ -252,7 +254,11 @@ export function Hud() {
                 the right thing to show during boot — as a general fallback a
                 note that never got cleared (a stuck 'voice 97%') sits over
                 LISTENING and PROCESSING for the rest of the session. */}
-            {phase === 'boot' && bootNote ? bootNote : statusText[phase]}
+            {meetingPhase === 'running'
+              ? 'MEETING MODE · MIC OFF'
+              : meetingPhase === 'setup'
+                ? 'MEETING MODE · AGENDA?'
+                : phase === 'boot' && bootNote ? bootNote : statusText[phase]}
           </span>
         </div>
       </header>

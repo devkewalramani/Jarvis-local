@@ -370,6 +370,10 @@ function createWindow() {
     if (process.env.JARVIS_DESKTOP_AUTOINIT === '1') {
       setTimeout(() => win.webContents.executeJavaScript("document.querySelector('.ignition')?.click()", true), 1500)
     }
+    // Test aid: run meeting mode with this agenda once the voice loop is up.
+    if (process.env.JARVIS_DESKTOP_MEETING_TEST) {
+      setTimeout(() => win.webContents.send('jarvis:meeting-test', process.env.JARVIS_DESKTOP_MEETING_TEST), 25000)
+    }
     if (process.env.JARVIS_DESKTOP_SNAPSHOT) {
       setTimeout(async () => {
         const img = await win.webContents.capturePage()
@@ -512,6 +516,25 @@ function setVoice(patch) {
   rebuildTrayMenu()
 }
 
+/**
+ * Meeting mode shortcuts. Start (⌃⌥⌘M) is always registered; next item and
+ * end (⌃⌥⌘N, ⌃⌥⌘E) only while a meeting runs, so they never take those keys
+ * from other apps otherwise. All of them work while the call has focus.
+ */
+const MEETING_KEYS = { start: 'Control+Alt+Command+M', next: 'Control+Alt+Command+N', end: 'Control+Alt+Command+E' }
+let meetingActive = false
+const sendMeetingKey = (action) => win?.webContents.send('jarvis:meeting-key', action)
+
+ipcMain.on('jarvis:meeting-active', (_e, on) => {
+  meetingActive = Boolean(on)
+  for (const action of ['next', 'end']) {
+    if (meetingActive) globalShortcut.register(MEETING_KEYS[action], () => sendMeetingKey(action))
+    else globalShortcut.unregister(MEETING_KEYS[action])
+  }
+  log(`meeting mode ${meetingActive ? 'on' : 'off'}`)
+  rebuildTrayMenu()
+})
+
 function loadFalseWakes() {
   try {
     const list = JSON.parse(fs.readFileSync(FALSE_WAKES_FILE(), 'utf8'))
@@ -631,6 +654,13 @@ function rebuildTrayMenu() {
         })),
       },
       { type: 'separator' },
+      ...(meetingActive
+        ? [
+            { label: 'Next Agenda Item', accelerator: 'Control+Alt+Command+N', click: () => sendMeetingKey('next') },
+            { label: 'End Meeting', accelerator: 'Control+Alt+Command+E', click: () => sendMeetingKey('end') },
+          ]
+        : [{ label: 'Start Meeting Mode', accelerator: 'Control+Alt+Command+M', click: () => { win?.show(); sendMeetingKey('start') } }]),
+      { type: 'separator' },
       ...voiceMenu(),
       { type: 'separator' },
       { label: 'Open in Browser', click: () => shell.openExternal(FACE_URL) },
@@ -686,6 +716,9 @@ if (!app.requestSingleInstanceLock()) {
     if (!(await ensureServices())) return
 
     createWindow()
+    if (!globalShortcut.register(MEETING_KEYS.start, () => sendMeetingKey('start'))) {
+      log('⌃⌥⌘M is taken by another app; start meeting mode by voice or the menu')
+    }
     if (!globalShortcut.register('CommandOrControl+Shift+J', toggleWindow)) {
       log('Cmd+Shift+J is taken by another app')
     }
@@ -707,8 +740,11 @@ if (!app.requestSingleInstanceLock()) {
   // `kill`, logout and shutdown: stop the services on the way out, too.
   for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => app.quit())
 
-  // Debug aid: `kill -USR2 <pid>` steps to the next backdrop (for screenshots).
+  // Debug aid: `kill -USR2 <pid>` steps to the next backdrop (for screenshots),
+  // or, during a meeting test (JARVIS_DESKTOP_MEETING_TEST), presses "next item".
+  // (Not SIGUSR1: Node reserves it for the debugger.)
   process.on('SIGUSR2', () => {
+    if (process.env.JARVIS_DESKTOP_MEETING_TEST) return sendMeetingKey('next')
     const modes = Object.keys(BACKDROPS)
     setBackdrop(modes[(modes.indexOf(backdrop) + 1) % modes.length])
   })

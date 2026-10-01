@@ -13,6 +13,10 @@ import { Core } from './Core'
 import { Particles } from './Particles'
 import { Orbits } from './Orbits'
 import { IS_DESKTOP } from '../lib/desktop'
+import { meetingAlert } from '../lib/meeting'
+
+/** Meeting mode: the ring turns amber at two minutes left on an item, red at zero. */
+const ALERT_COLOR = { amber: '#ffb020', red: '#ff4d4d' } as const
 import { useStore, phaseColor, accentFor, type Phase } from '../store'
 
 /** Rings spin harder while JARVIS is working — reads as effort. */
@@ -139,20 +143,25 @@ function Rig() {
     // accentFor owns the accent -> palette -> phase resolution order. The scene
     // asking the store for the answer rather than working it out again is what
     // keeps the orb and the HUD from ever disagreeing about the colour.
-    const accent = accentFor(phase, ui)
+    const alert = meetingAlert()
+    const accent = alert ? ALERT_COLOR[alert] : accentFor(phase, ui)
     drive.color.lerp(aim(target, accent), Math.min(1, dt * 2.5))
 
     const r = ui.reactor
     drive.reactor.color.lerp(
-      aim(reactorTarget, r.color ?? accent),
+      aim(reactorTarget, alert ? accent : (r.color ?? accent)),
       Math.min(1, dt * 2.5),
     )
+    // The alert pulses: slowly at amber, faster once time is up.
+    const pulse = alert
+      ? 0.72 + 0.28 * Math.sin(state.clock.elapsedTime * (alert === 'red' ? 6 : 3))
+      : 1
     // Smoothed rather than assigned, so "make it twice the size" grows into
     // place instead of snapping. The style is the exception: it is a mode, and
     // easing between two of them would drag the picture through the third.
     const k = Math.min(1, dt * 5)
     drive.reactor.scale += (r.scale - drive.reactor.scale) * k
-    drive.reactor.intensity += (r.intensity - drive.reactor.intensity) * k
+    drive.reactor.intensity += (r.intensity * pulse - drive.reactor.intensity) * k
     drive.reactor.spin += (r.spin - drive.reactor.spin) * k
     drive.reactor.style = STYLE_INDEX[r.style] ?? STYLE_INDEX.ring
     drive.reactor.visible = r.visible

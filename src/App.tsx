@@ -5,6 +5,12 @@ import { Boot } from './ui/Boot'
 import { Ignition } from './ui/Ignition'
 import { Diagnostics } from './ui/Diagnostics'
 import { MicTest } from './ui/MicTest'
+import { MeetingHud } from './ui/MeetingHud'
+import { parseAgenda, describeAgenda, type AgendaItem } from './lib/agenda'
+import {
+  useMeeting, beginSetup, cancelSetup, startMeeting, nextItem, endMeeting, clearOffer,
+  OFFER_MS, type MeetingSummary,
+} from './lib/meeting'
 import { useStore } from './store'
 import { startVoice, takeWake, type Voice, type VoiceMode } from './lib/voice'
 import { DESKTOP } from './lib/desktop'
@@ -31,7 +37,8 @@ import {
   usingBridge,
   type Msg,
 } from './lib/brain'
-import { startAnalyser, micLevel } from './lib/audio'
+import { startAnalyser, micLevel, releaseMic } from './lib/audio'
+import { BRIDGE_HTTP_URL } from './config'
 import { probeCapabilities } from './lib/capabilities'
 import { env } from './config'
 
@@ -56,6 +63,29 @@ const AWAIT_SPEECH_MS = 14000
  *  drops back to standby. Long enough that you don't have to say the name
  *  again to continue a thought. */
 const FOLLOW_UP_MS = 11000
+
+// Meeting mode phrases. Local: none of these reach the brain.
+const MEETING_START = /\b(start|begin|enter|turn on|switch to)\s+(the\s+)?meeting mode\b/i
+const YES = /^\s*(yes|yeah|yep|sure|please|go ahead|do it|use it|ok(ay)?|sounds good)\b/i
+const NO = /^\s*(no|nope|don'?t|do not|not now|skip|never mind)\b/i
+const CANCEL = /\b(cancel|never mind|stop meeting mode)\b/i
+const DRAFT_FOLLOW_UP = /\bdraft\b.*\bfollow[\s-]*up\b|\bfollow[\s-]*up\b.*\bdraft\b/i
+
+/** GET from the bridge, or null if it can't answer. */
+async function bridgeJson<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${BRIDGE_HTTP_URL}${path}`, { signal: AbortSignal.timeout(20000) })
+    return res.ok ? ((await res.json()) as T) : null
+  } catch {
+    return null
+  }
+}
+
+type MeetingNow = { event: { title: string } | null; agenda: AgendaItem[] }
+
+const followUpPrompt = (o: MeetingSummary) =>
+  `Draft a follow-up from the meeting that just ended${o.title ? `, "${o.title}"` : ''}. ` +
+  `Its agenda was: ${describeAgenda(o.items)}.`
 
 /** crypto.randomUUID needs a secure context, which a LAN address over plain
  *  http is not. Not worth failing a whole turn over an id. */
@@ -125,7 +155,169 @@ export default function App() {
 
   // -- one turn -------------------------------------------------------------
 
+  // -- meeting mode -----------------------------------------------------------
+
+  /** A line from Jarvis outside a model turn: shown, and spoken only if allowed. */
+  const reply = async (text: string, speak: boolean) => {
+    const s = store.getState()
+    s.pushTurn({ id: newId(), role: 'jarvis', text })
+    if (!speak) return
+    s.setPhase('speaking')
+    const spk = createSpeaker()
+    speaker.current = spk
+    spk.push(text)
+    await spk.end()
+    speaker.current = null
+  }
+
+  /** The microphone, released completely for the meeting and opened again after. */
+  const pauseListening = () => {
+    voice.current?.stop()
+    voice.current = null
+    releaseMic()
+    clearIdle()
+    store.getState().setPhase('dormant')
+  }
+  const resumeListening = async () => {
+    try {
+      await startAnalyser()
+    } catch {
+      /* the reactor just won't pulse with the voice */
+    }
+    voice.current = await startVoice({ mode, onWake, onSpeechStart, onPartial, onUtterance, onError: onVoiceError })
+  }
+
+  const runMeeting = async (items: AgendaItem[], title: string | null, headphones: boolean) => {
+    startMeeting(items, title, headphones)
+    const first = items[0]
+    // Spoken only into headphones: Jarvis never speaks into the call.
+    await reply(
+      `Meeting mode on. ${first.title} first, ${first.minutes} minute${first.minutes === 1 ? '' : 's'}. Microphone off.`,
+      headphones,
+    )
+    pauseListening()
+    DESKTOP?.setMeetingActive?.(true)
+  }
+
+  const finishMeeting = async () => {
+    const summary = endMeeting()
+    if (!summary) return
+    DESKTOP?.setMeetingActive?.(false)
+    await resumeListening()
+    const minutes = Math.max(1, Math.round((summary.endedAt - summary.startedAt) / 60000))
+    const said = `Meeting mode off after ${minutes} minute${minutes === 1 ? '' : 's'}, ` +
+      `${summary.covered} of ${summary.items.length} items.`
+    if (useMeeting.getState().offerSpoken) {
+      // Heard in headphones: a plain "yes" answers it.
+      await reply(`${said} Shall I draft the follow-up?`, true)
+      listen(FOLLOW_UP_MS)
+    } else {
+      // Shown, not spoken (the call may still be on speakers), so nobody was
+      // asked out loud: back to the wake word rather than an open microphone
+      // that would take any "yeah" in the room as an answer.
+      await reply(`${said} Say "Hey Jarvis, draft the follow-up" when you're ready.`, false)
+      goDormant()
+    }
+  }
+
+  /** "Start meeting mode", by voice or shortcut. Never from the calendar on its own. */
+  const startMeetingSetup = async (said: string) => {
+    const [now, out] = await Promise.all([
+      bridgeJson<MeetingNow>('/meeting/now'),
+      bridgeJson<{ headphones: boolean }>('/audio-output'),
+    ])
+    const headphones = Boolean(out?.headphones)
+    const title = now?.event?.title ?? null
+    // An agenda said with the command starts straight away.
+    const spoken = /\bagenda\b/i.test(said) ? parseAgenda(said) : []
+    if (spoken.length) return runMeeting(spoken, title, headphones)
+    // A meeting already under way on speakers: show the prompts, don't say them.
+    const speak = headphones || !now?.event
+    if (now?.event && now.agenda.length) {
+      beginSetup({ step: 'confirm', offered: now.agenda, title, speak }, headphones)
+      await reply(`You're in ${title}. The invite's agenda is ${describeAgenda(now.agenda)}. Shall I use it?`, speak)
+    } else {
+      beginSetup({ step: 'ask', offered: [], title, speak }, headphones)
+      await reply(
+        `${title ? `You're in ${title}. ` : ''}What's the agenda? Say each item and its minutes, like pricing fifteen, timeline ten.`,
+        speak,
+      )
+    }
+    listen(AWAIT_SPEECH_MS)
+  }
+
+  /** Meeting mode's part of a turn. True when it handled what was said. */
+  const meetingTurn = async (said: string): Promise<boolean> => {
+    const m = useMeeting.getState()
+    if (m.offer && Date.now() - m.offer.endedAt > OFFER_MS) clearOffer()
+    if (m.offer && Date.now() - m.offer.endedAt <= OFFER_MS) {
+      const offer = m.offer
+      // "Draft the follow-up" always means this meeting while the offer is open;
+      // a bare "yes" only counts if the question was actually heard.
+      if (DRAFT_FOLLOW_UP.test(said) || (m.offerSpoken && YES.test(said))) {
+        clearOffer()
+        void respond(followUpPrompt(offer))
+        return true
+      }
+      if (m.offerSpoken && NO.test(said)) {
+        clearOffer()
+        await reply('Very good, sir.', true)
+        listen(FOLLOW_UP_MS)
+        return true
+      }
+    }
+    if (m.phase === 'setup' && m.setup) {
+      const setup = m.setup
+      if (CANCEL.test(said)) {
+        cancelSetup()
+        await reply('Meeting mode cancelled.', setup.speak)
+        listen(FOLLOW_UP_MS)
+        return true
+      }
+      if (setup.step === 'confirm' && YES.test(said)) {
+        await runMeeting(setup.offered, setup.title, m.headphones)
+        return true
+      }
+      const items = parseAgenda(said)
+      if (items.length) {
+        await runMeeting(items, setup.title, m.headphones)
+        return true
+      }
+      if (setup.step === 'confirm' && NO.test(said)) {
+        beginSetup({ ...setup, step: 'ask', offered: [] }, m.headphones)
+        await reply('Then what is the agenda? Each item and its minutes.', setup.speak)
+      } else {
+        await reply("I didn't catch an agenda. Each item and its minutes, like pricing fifteen, timeline ten.", setup.speak)
+      }
+      listen(AWAIT_SPEECH_MS)
+      return true
+    }
+    if (MEETING_START.test(said)) {
+      clearIdle()
+      await startMeetingSetup(said)
+      return true
+    }
+    return false
+  }
+
+  /** Shortcuts: start (⌃⌥⌘M), next item (⌃⌥⌘N), end (⌃⌥⌘E). */
+  const meetingKey = (action: 'start' | 'next' | 'end') => {
+    const m = useMeeting.getState()
+    if (action === 'start') {
+      if (m.phase === 'off' && store.getState().phase !== 'offline' && store.getState().phase !== 'boot') {
+        void startMeetingSetup('')
+      }
+    } else if (action === 'next') {
+      if (m.phase === 'running' && !nextItem()) void finishMeeting()
+    } else if (m.phase === 'running') {
+      void finishMeeting()
+    } else if (m.phase === 'setup') {
+      cancelSetup()
+    }
+  }
+
   const respond = async (said: string): Promise<void> => {
+    if (await meetingTurn(said)) return
     const mine = ++turn.current
     const stale = () => mine !== turn.current
 
@@ -579,6 +771,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
+  // -- meeting mode: page state and desktop hooks ----------------------------
+
+  const meetingPhase = useMeeting((m) => m.phase)
+  useEffect(() => {
+    document.documentElement.classList.toggle('meeting-on', meetingPhase === 'running')
+  }, [meetingPhase])
+
+  useEffect(() => {
+    // Global shortcuts from the desktop app (they work while the call has focus).
+    DESKTOP?.onMeetingKey?.((action) => meetingKey(action))
+    // Test aid (JARVIS_DESKTOP_MEETING_TEST): run a meeting with a fixed agenda.
+    DESKTOP?.onMeetingTest?.((agenda) => {
+      void (async () => {
+        const out = await bridgeJson<{ headphones: boolean }>('/audio-output')
+        await runMeeting(parseAgenda(`agenda: ${agenda}`), 'Test meeting', Boolean(out?.headphones))
+      })()
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // -- level pump + keys ----------------------------------------------------
 
   useEffect(() => {
@@ -680,9 +892,22 @@ export default function App() {
         return
       }
 
+      // Meeting mode shortcuts (⌃⌥⌘ + M/N/E). The desktop app also registers
+      // them globally, so they work while the call has focus.
+      if (e.ctrlKey && e.altKey && e.metaKey && !e.repeat) {
+        const action = ({ KeyM: 'start', KeyN: 'next', KeyE: 'end' } as const)[e.code as 'KeyM' | 'KeyN' | 'KeyE']
+        if (action) {
+          e.preventDefault()
+          meetingKey(action)
+          return
+        }
+      }
+
       // Space starts a turn without the wake word. Worth using while filming so
-      // a missed wake word doesn't cost a take.
+      // a missed wake word doesn't cost a take. Not during a meeting: the
+      // microphone stays off until it ends.
       if (e.code !== 'Space' || e.repeat) return
+      if (useMeeting.getState().phase === 'running') return
       e.preventDefault()
 
       const phase = store.getState().phase
@@ -723,6 +948,7 @@ export default function App() {
       <Boot />
       <Diagnostics />
       <MicTest />
+      <MeetingHud />
       <Ignition onStart={() => void powerOn()} />
     </>
   )

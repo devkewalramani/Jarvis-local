@@ -33,6 +33,24 @@ export async function startAnalyser(): Promise<void> {
   buf = new Uint8Array(analyser.frequencyBinCount)
 }
 
+/**
+ * Close the microphone completely: stop every track (the macOS microphone
+ * indicator goes out) and drop the analyser. Meeting mode uses this so nothing
+ * is recorded or transcribed; getMic() and startAnalyser() open it again.
+ */
+export function releaseMic(): void {
+  stream?.getTracks().forEach((t) => t.stop())
+  stream = null
+  void ctx?.close()
+  ctx = null
+  analyser = null
+  buf = null
+}
+
+/** True while a microphone stream is open. */
+export const micOpen = (): boolean =>
+  Boolean(stream?.getTracks().some((t) => t.readyState === 'live'))
+
 /** 0..1 loudness. Returns 0 before the analyser is up. */
 export function micLevel(): number {
   if (!analyser || !buf) return 0

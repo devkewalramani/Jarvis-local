@@ -16,6 +16,10 @@ contextBridge.exposeInMainWorld(
     onVoiceSettings: (cb) => ipcRenderer.on('jarvis:voice-settings', (_e, s) => cb(s)),
     // "Test mic": show the live level and wake word confidence (src/ui/MicTest.tsx).
     onMicTest: (cb) => ipcRenderer.on('jarvis:mic-test', (_e, ms) => cb(ms)),
+    // Meeting mode: running state out, global shortcuts and the test aid in.
+    setMeetingActive: (on) => ipcRenderer.send('jarvis:meeting-active', Boolean(on)),
+    onMeetingKey: (cb) => ipcRenderer.on('jarvis:meeting-key', (_e, action) => cb(action)),
+    onMeetingTest: (cb) => ipcRenderer.on('jarvis:meeting-test', (_e, agenda) => cb(String(agenda))),
     // A wake whose speech wasn't a request: its confidence, for the menu's list.
     reportFalseWake: (w) =>
       ipcRenderer.send('jarvis:false-wake', { score: Number(w?.score), threshold: w?.threshold == null ? null : Number(w.threshold) }),
