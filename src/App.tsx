@@ -66,12 +66,24 @@ const FOLLOW_UP_MS = 11000
 
 // Meeting mode phrases. Local: none of these reach the brain.
 const MEETING_START = /\b(start|begin|enter|turn on|switch to)\s+(the\s+)?meeting mode\b/i
+// Whole commands only, so "who will join the meeting tomorrow?" is a question, not a command.
+const ZOOM_JOIN = /^\W*(?:(?:please|can you|could you|go ahead and)\s+)?(?:join|get on|hop on|jump on)\s+(?:the\s+|my\s+|this\s+)?(?:zoom\s+)?(?:meeting|call|zoom)(?:\s+(?:now|please))?\W*$/i
+const ZOOM_LEAVE = /^\W*(?:(?:please|can you|could you|go ahead and)\s+)?(?:leave|drop|exit|get off|hang up)\s+(?:(?:from|off)\s+)?(?:the\s+|my\s+|this\s+)?(?:zoom\s+)?(?:meeting|call|zoom)(?:\s+(?:now|please))?\W*$/i
 const YES = /^\s*(yes|yeah|yep|sure|please|go ahead|do it|use it|ok(ay)?|sounds good)\b/i
 const NO = /^\s*(no|nope|don'?t|do not|not now|skip|never mind)\b/i
 const CANCEL = /\b(cancel|never mind|stop meeting mode)\b/i
 const DRAFT_FOLLOW_UP = /\bdraft\b.*\bfollow[\s-]*up\b|\bfollow[\s-]*up\b.*\bdraft\b/i
 
 /** GET from the bridge, or null if it can't answer. */
+async function bridgePost<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${BRIDGE_HTTP_URL}${path}`, { method: 'POST', signal: AbortSignal.timeout(30000) })
+    return res.ok ? ((await res.json()) as T) : null
+  } catch {
+    return null
+  }
+}
+
 async function bridgeJson<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(`${BRIDGE_HTTP_URL}${path}`, { signal: AbortSignal.timeout(20000) })
@@ -220,6 +232,39 @@ export default function App() {
     }
   }
 
+  /**
+   * "Join the meeting", by voice or ⌃⌥⌘J: Jarvis joins the Zoom call on the
+   * calendar now as J.A.R.V.I.S. (muted, no microphone, the tile as its
+   * camera), then meeting mode starts. Spoken replies only into headphones.
+   */
+  const joinZoom = async () => {
+    const out = await bridgeJson<{ headphones: boolean }>('/audio-output')
+    const headphones = Boolean(out?.headphones)
+    const res = await bridgePost<{ ok: boolean; message?: string; already?: boolean }>('/zoom/join')
+    if (!res?.ok) {
+      await reply(res?.message ?? "I couldn't open Zoom.", headphones)
+      return
+    }
+    await reply(
+      res.already
+        ? "I'm already in the meeting."
+        : 'Joining as J.A.R.V.I.S., muted, with the agenda timer as my camera. Admit me from the waiting room.',
+      headphones,
+    )
+    if (useMeeting.getState().phase === 'off') await startMeetingSetup('')
+  }
+
+  /** "Leave the meeting", by voice or ⌃⌥⌘L: close Jarvis's Zoom window, stop the camera, end meeting mode. */
+  const leaveZoom = async () => {
+    await bridgePost('/zoom/leave')
+    const m = useMeeting.getState()
+    if (m.phase === 'running') await finishMeeting()
+    else {
+      if (m.phase === 'setup') cancelSetup()
+      await reply('Left the meeting.', false)
+    }
+  }
+
   /** "Start meeting mode", by voice or shortcut. Never from the calendar on its own. */
   const startMeetingSetup = async (said: string) => {
     const [now, out] = await Promise.all([
@@ -292,6 +337,16 @@ export default function App() {
       listen(AWAIT_SPEECH_MS)
       return true
     }
+    if (ZOOM_LEAVE.test(said)) {
+      clearIdle()
+      await leaveZoom()
+      return true
+    }
+    if (ZOOM_JOIN.test(said)) {
+      clearIdle()
+      await joinZoom()
+      return true
+    }
     if (MEETING_START.test(said)) {
       clearIdle()
       await startMeetingSetup(said)
@@ -301,8 +356,10 @@ export default function App() {
   }
 
   /** Shortcuts: start (⌃⌥⌘M), next item (⌃⌥⌘N), end (⌃⌥⌘E). */
-  const meetingKey = (action: 'start' | 'next' | 'end') => {
+  const meetingKey = (action: 'start' | 'next' | 'end' | 'join' | 'leave') => {
     const m = useMeeting.getState()
+    if (action === 'join') return void joinZoom()
+    if (action === 'leave') return void leaveZoom()
     if (action === 'start') {
       if (m.phase === 'off' && store.getState().phase !== 'offline' && store.getState().phase !== 'boot') {
         void startMeetingSetup('')

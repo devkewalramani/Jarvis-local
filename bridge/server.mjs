@@ -32,7 +32,8 @@ import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path'
 import { openRemote, proxyError, vetTarget, PROXY_UA } from './net.mjs'
 import { probeUrl, renderPage } from './page.mjs'
 import { prepareDraft } from './signature.mjs'
-import { audioOutput, meetingNow, publicMeeting } from './meeting.mjs'
+import { audioOutput, meetingNow, publicMeeting, zoomLinkIn, zoomLinkNow } from './meeting.mjs'
+import { joinZoom, leaveZoom, zoomStatus } from './zoom.mjs'
 
 /** What the meeting tile may show; see /meeting/state. `call` is set by the bridge itself. */
 let tileState = { ...publicMeeting({}), call: { introReady: false, muted: null } }
@@ -1089,6 +1090,38 @@ const handleRequest = async (req, res) => {
       }
       return res.end()
     }
+  }
+
+  // Joining and leaving a Zoom call (see zoom.mjs). Only ever on the user's
+  // word: "Hey Jarvis, join the meeting" or the shortcut. The link comes from
+  // the calendar event happening now; a zoom.us link in the body overrides it.
+  if (req.url === '/zoom/status' && req.method === 'GET') {
+    res.writeHead(200, { ...cors, 'content-type': 'application/json', 'cache-control': 'no-store' })
+    return res.end(JSON.stringify(zoomStatus()))
+  }
+  if ((req.url === '/zoom/join' || req.url === '/zoom/leave') && req.method === 'POST') {
+    let raw = ''
+    for await (const chunk of req) {
+      raw += chunk
+      if (raw.length > 4096) break
+    }
+    let body = {}
+    try {
+      body = raw ? JSON.parse(raw) : {}
+    } catch {
+      /* no body */
+    }
+    let result
+    if (req.url === '/zoom/leave') result = await leaveZoom()
+    else {
+      const given = zoomLinkIn(body.link)
+      const event = given ? { title: null, link: given } : await zoomLinkNow().catch(() => null)
+      result = event
+        ? { ...(await joinZoom(event.link)), title: event.title }
+        : { ok: false, message: 'There is no Zoom meeting on your calendar right now.' }
+    }
+    res.writeHead(200, { ...cors, 'content-type': 'application/json' })
+    return res.end(JSON.stringify(result))
   }
 
   // Speech, both directions, handled by the local voice service. The page

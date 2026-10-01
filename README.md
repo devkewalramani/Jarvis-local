@@ -144,6 +144,23 @@ and the timer: never a transcript, a meeting title or anything else.
   Settings, General, Login Items & Extensions, Camera Extensions. If the camera
   then shows OBS's placeholder, stop and start the virtual camera once in OBS.
 
+**Joining a Zoom call.** "Hey Jarvis, join the meeting" (or ⌃⌥⌘J) takes the
+Zoom link from the calendar event happening now, or starting within 15
+minutes, and joins it in its own Chrome window as "J.A.R.V.I.S.": muted, with
+the meeting tile as its camera. Then meeting mode starts. "Leave the meeting"
+(or ⌃⌥⌘L, which works while meeting mode has the wake word paused) closes
+that window, stops the camera and ends meeting mode. It never joins on its own.
+
+* **Its own Chrome.** A separate Chrome instance with its own data folder
+  (`~/Library/Application Support/Jarvis/zoom-chrome`, profile "Jarvis"),
+  driven over Chrome's DevTools pipe rather than a network port.
+* **No microphone, no sound.** The Zoom page is offered one camera (OBS
+  Virtual Camera) and no microphone at all; microphone permission is denied,
+  and Chrome runs with its audio output muted. Jarvis never listens to or
+  records a call.
+* **One time.** If Zoom asks guests to sign in, run
+  `node scripts/zoom-profile.mjs` and sign in to Zoom in that window.
+
 ## Hardware
 
 Tested on one machine: a **MacBook Pro with an M4 Max and 36 GB of memory**, on

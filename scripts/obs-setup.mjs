@@ -10,10 +10,20 @@
 // no desktop audio, no microphone, and the browser source's own audio is
 // routed into OBS (where nothing plays or records it) rather than to the
 // speakers. OBS's virtual camera on macOS carries video only.
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+
+// OBS rewrites its config files when it quits, so edits made while it runs are lost.
+try {
+  execFileSync('/usr/bin/pgrep', ['-f', 'OBS.app/Contents/MacOS/OBS'])
+  console.error('OBS is running. Quit it first, then run this again.')
+  process.exit(1)
+} catch {
+  /* not running */
+}
 
 const TILE_URL = process.env.JARVIS_TILE_URL || 'http://localhost:5173/tile'
 const OBS = join(homedir(), 'Library', 'Application Support', 'obs-studio')
@@ -130,5 +140,15 @@ SceneCollectionFile=${NAME}
 `,
   )
 }
+
+// Jarvis quits OBS to stop the camera when it leaves a call; OBS's "outputs
+// are active, really quit?" dialog would block that.
+const ini = readFileSync(userIni, 'utf8')
+writeFileSync(
+  userIni,
+  /^ConfirmOnExit=/m.test(ini)
+    ? ini.replace(/^ConfirmOnExit=.*$/m, 'ConfirmOnExit=false')
+    : ini.replace(/^\[General\]\n/m, '[General]\nConfirmOnExit=false\n'),
+)
 
 console.log(`OBS: profile and scene collection "${NAME}" written; tile ${TILE_URL}`)

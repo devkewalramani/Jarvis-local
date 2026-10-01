@@ -521,7 +521,15 @@ function setVoice(patch) {
  * end (⌃⌥⌘N, ⌃⌥⌘E) only while a meeting runs, so they never take those keys
  * from other apps otherwise. All of them work while the call has focus.
  */
-const MEETING_KEYS = { start: 'Control+Alt+Command+M', next: 'Control+Alt+Command+N', end: 'Control+Alt+Command+E' }
+const MEETING_KEYS = {
+  start: 'Control+Alt+Command+M',
+  next: 'Control+Alt+Command+N',
+  end: 'Control+Alt+Command+E',
+  // Joining and leaving a Zoom call: always registered (leave must work while
+  // meeting mode has the wake word paused).
+  join: 'Control+Alt+Command+J',
+  leave: 'Control+Alt+Command+L',
+}
 let meetingActive = false
 const sendMeetingKey = (action) => win?.webContents.send('jarvis:meeting-key', action)
 
@@ -718,6 +726,11 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     if (!globalShortcut.register(MEETING_KEYS.start, () => sendMeetingKey('start'))) {
       log('⌃⌥⌘M is taken by another app; start meeting mode by voice or the menu')
+    }
+    for (const action of ['join', 'leave']) {
+      if (!globalShortcut.register(MEETING_KEYS[action], () => sendMeetingKey(action))) {
+        log(`${MEETING_KEYS[action]} is taken by another app; ${action} the meeting by voice`)
+      }
     }
     if (!globalShortcut.register('CommandOrControl+Shift+J', toggleWindow)) {
       log('Cmd+Shift+J is taken by another app')

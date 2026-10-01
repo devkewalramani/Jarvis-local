@@ -141,3 +141,34 @@ export function publicMeeting(m) {
   const itemStartedAt = Number(m.itemStartedAt) || Date.now()
   return { phase: 'running', items, index, itemStartedAt }
 }
+
+/** A Zoom meeting link in free text (an invite's location or description). */
+const ZOOM_LINK = /https:\/\/(?:[\w-]+\.)*zoom\.us\/(?:j|w|s|my|wc)\/[^\s"'<>)\]]+/i
+
+export function zoomLinkIn(...texts) {
+  for (const t of texts) {
+    const m = ZOOM_LINK.exec(String(t ?? ''))
+    if (m) return m[0].replace(/[.,;]+$/, '')
+  }
+  return null
+}
+
+/**
+ * The Zoom link of the meeting to join: one happening now, or starting within
+ * the next 15 minutes, preferring the one already under way. Read only, from
+ * the calendar; null when there is none.
+ */
+export async function zoomLinkNow() {
+  const now = Date.now()
+  const events = await thunderbirdCall('listEvents', {
+    startDate: new Date(now - 12 * 3600_000).toISOString(),
+    endDate: new Date(now + 15 * 60_000).toISOString(),
+    maxResults: 100,
+  })
+  const list = (Array.isArray(events) ? events : events?.events ?? [])
+    .filter((e) => !e.allDay && new Date(e.endDate) > now && new Date(e.startDate) <= now + 15 * 60_000)
+    .map((e) => ({ title: String(e.title ?? '').trim(), start: e.startDate, link: zoomLinkIn(e.onlineMeetingURL, e.location, e.description) }))
+    .filter((e) => e.link)
+    .sort((a, b) => Math.abs(new Date(a.start) - now) - Math.abs(new Date(b.start) - now))
+  return list[0] ?? null
+}

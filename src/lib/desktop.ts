@@ -13,7 +13,7 @@ type DesktopBridge = {
   /** Meeting mode: tell the app it is running (for the global next/end shortcuts). */
   setMeetingActive?: (on: boolean) => void
   /** Meeting mode shortcuts pressed anywhere (registered globally by the app). */
-  onMeetingKey?: (cb: (action: 'start' | 'next' | 'end') => void) => void
+  onMeetingKey?: (cb: (action: 'start' | 'next' | 'end' | 'join' | 'leave') => void) => void
   /** Test aid: start a meeting with this agenda ("intro 1, pricing 3, wrap up 1"). */
   onMeetingTest?: (cb: (agenda: string) => void) => void
   /** A wake whose speech turned out not to be a request, for the menu's list. */
