@@ -20,8 +20,9 @@
  *    records a call.
  */
 
-import { spawn, execFile } from 'node:child_process'
+import { spawn, execFile, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { readdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -33,6 +34,15 @@ export const PROFILE_DIR = join(homedir(), 'Library', 'Application Support', 'Ja
 export const DISPLAY_NAME = 'J.A.R.V.I.S.'
 const ZOOM_ORIGINS = ['https://app.zoom.us', 'https://zoom.us']
 const OBS_ARGS = ['--profile', 'Jarvis', '--collection', 'Jarvis', '--scene', 'Jarvis', '--startvirtualcam', '--disable-updater']
+/**
+ * OBS leaves a run marker here while it runs. One left by an instance that
+ * did not exit cleanly makes the next launch stop at a "run in safe mode?"
+ * dialog (OBS 32 has no flag to skip it), and while that is up OBS ignores
+ * SIGTERM. Cleared before launch, and only when no OBS is running at all.
+ */
+const OBS_SENTINELS = join(homedir(), 'Library', 'Application Support', 'obs-studio', '.sentinel')
+/** Jarvis's OBS: the instance started on the Jarvis profile, whoever launched it. Your own OBS use is untouched. */
+const JARVIS_OBS = '^/Applications/OBS.app/Contents/MacOS/OBS --profile Jarvis'
 
 /** Create the Jarvis Chrome profile on first use, named so it is recognisable. */
 export function ensureProfile() {
@@ -95,7 +105,8 @@ const JOIN_STEP = (name) => `(() => {
     return 'signin'
   if (/meeting passcode|enter.*passcode/i.test(page) && document.querySelector('#input-for-pwd'))
     return 'passcode'
-  if (/meeting has been ended|meeting has ended|this meeting link is invalid|invalid meeting id/i.test(page)) return 'ended'
+  if (/this meeting link is invalid|invalid meeting id|meeting id is not valid/i.test(page)) return 'invalid'
+  if (/meeting has been ended|meeting has ended|ended by (the )?host/i.test(page)) return 'ended'
   if (/waiting room|host will let you in|please wait.*host/i.test(page)) return 'waiting'
   const browserLink = button(/join from (your )?browser/i)
   if (browserLink) { browserLink.click(); return 'landing' }
@@ -123,6 +134,19 @@ const JOIN_STEP = (name) => `(() => {
   return 'loading'
 })()`
 
+/**
+ * Once in the call, a read-only look at the page every two seconds: still in
+ * the call, or ended (the host ended it, Jarvis was removed, or the meeting
+ * controls are gone). Clicks nothing.
+ */
+const CALL_STATE = `(() => {
+  const page = document.body ? document.body.innerText : ''
+  if (/meeting has been ended|meeting has ended|ended by (the )?host|you have been removed|removed you from the meeting|you left the meeting/i.test(page)) return 'ended'
+  const leave = [...document.querySelectorAll('button, [role=button]')].some((b) =>
+    /^\s*leave\b|leave meeting/i.test((b.getAttribute('aria-label') || '') + ' ' + (b.textContent || '')))
+  return leave ? 'in-call' : 'gone'
+})()`
+
 const PROGRESS = {
   launching: 'Opening Zoom.',
   landing: 'Opening Zoom.',
@@ -135,7 +159,8 @@ const PROGRESS = {
   'in-call': 'In the call, muted, camera on.',
   signin: 'Zoom wants a sign in for this meeting. Sign in once in the Jarvis Chrome window.',
   passcode: 'Zoom is asking for the meeting passcode.',
-  ended: 'Zoom says that meeting has ended or the link is invalid.',
+  ended: 'The call has ended.',
+  invalid: 'Zoom says that meeting link is invalid.',
   left: 'Left the meeting.',
   idle: 'Not in a meeting.',
   error: 'Something went wrong joining.',
@@ -179,7 +204,7 @@ class Pipe {
 
 const obsRunning = async () => {
   try {
-    await run('/usr/bin/pgrep', ['-f', 'OBS.app/Contents/MacOS/OBS'])
+    await run('/usr/bin/pgrep', ['-f', JARVIS_OBS])
     return true
   } catch {
     return false
@@ -189,16 +214,24 @@ const obsRunning = async () => {
 /** Start OBS on the Jarvis scene with the virtual camera, in the background. */
 export async function startCamera() {
   if (await obsRunning()) return
+  const anyObs = await run('/usr/bin/pgrep', ['-f', '^/Applications/OBS.app/Contents/MacOS/OBS']).then(() => true, () => false)
+  if (!anyObs) {
+    for (const f of await readdir(OBS_SENTINELS).catch(() => [])) {
+      if (f.startsWith('run_')) await rm(join(OBS_SENTINELS, f), { force: true })
+    }
+  }
   await run('/usr/bin/open', ['-g', '-a', 'OBS', '--args', ...OBS_ARGS])
 }
 
-/** Stop the camera by quitting OBS cleanly (SIGTERM; the exit confirmation is off). */
+/**
+ * Stop the camera by quitting Jarvis's OBS: SIGTERM (a clean quit; the exit
+ * confirmation is off), then SIGKILL if it is still there after five seconds.
+ */
 export async function stopCamera() {
-  try {
-    await run('/usr/bin/pkill', ['-TERM', '-f', 'OBS.app/Contents/MacOS/OBS --'])
-  } catch {
-    /* not running */
-  }
+  const signal = (sig) => run('/usr/bin/pkill', [sig, '-f', JARVIS_OBS]).catch(() => {})
+  await signal('-TERM')
+  for (let i = 0; i < 10 && (await obsRunning()); i++) await new Promise((r) => setTimeout(r, 500))
+  if (await obsRunning()) await signal('-KILL')
 }
 
 /** What the Zoom page can see: every media device it is offered, by kind and label. */
@@ -255,8 +288,12 @@ export async function joinZoom(link) {
   const pipe = new Pipe(child)
   session = { child, pipe, stop: false }
   child.on('exit', () => {
-    if (session?.child === child) session = null
-    setStatus('left')
+    // The window closed under us (Chrome quit or crashed): the call is over.
+    if (session?.child === child) {
+      session = null
+      void stopCamera()
+      setStatus('ended')
+    }
   })
 
   try {
@@ -273,7 +310,7 @@ export async function joinZoom(link) {
     session.sessionId = sessionId
   } catch (err) {
     setStatus('error', err.message)
-    await leaveZoom()
+    await leaveZoom('error')
     return { ok: false, status }
   }
 
@@ -294,8 +331,8 @@ async function stepUntilJoined(s) {
         status.devices = await probeDevices().catch(() => null)
         console.log(`[zoom] the page sees: ${JSON.stringify(status.devices)}`)
       }
-      if (state === 'ended') return
-      if (state === 'in-call' && ++inCallFor >= 5) return // settled: stop touching the page
+      if (state === 'ended' || state === 'invalid') return void endCall(s, state)
+      if (state === 'in-call' && ++inCallFor >= 5) return void watchCall(s) // settled: stop touching the page
     } catch {
       /* navigating; try again */
     }
@@ -303,8 +340,32 @@ async function stepUntilJoined(s) {
   }
 }
 
-/** Leave: close the Jarvis Chrome window and stop the camera. */
-export async function leaveZoom() {
+/** In the call: watch (read only) until it ends, then leave on our own. */
+async function watchCall(s) {
+  let gone = 0
+  while (!s.stop && session === s) {
+    await new Promise((r) => setTimeout(r, 2000))
+    if (s.stop || session !== s) return
+    try {
+      const { result } = await s.pipe.send('Runtime.evaluate', { expression: CALL_STATE, returnByValue: true }, s.sessionId)
+      const state = result?.value
+      if (state === 'ended') return void endCall(s, 'ended')
+      gone = state === 'gone' ? gone + 1 : 0
+      if (gone >= 5) return void endCall(s, 'ended') // no meeting controls for ten seconds
+    } catch {
+      if (++gone >= 5) return void endCall(s, 'ended')
+    }
+  }
+}
+
+/** The call ended without us: close the window and stop the camera, keeping the reason. */
+async function endCall(s, state) {
+  if (session !== s) return
+  await leaveZoom(state)
+}
+
+/** Leave: close the Jarvis Chrome window and stop the camera. `final` is why. */
+export async function leaveZoom(final = 'left') {
   const s = session
   session = null
   if (s) {
@@ -317,6 +378,24 @@ export async function leaveZoom() {
     setTimeout(() => s.child.exitCode === null && s.child.kill('SIGTERM'), 3000)
   }
   await stopCamera()
-  setStatus('left')
+  setStatus(final)
   return { ok: true, status }
+}
+
+// Jarvis quitting (the bridge is stopped with SIGTERM) leaves the call too:
+// close the Jarvis window and stop the camera this bridge started.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.once(sig, () => {
+    try {
+      session?.child.kill('SIGTERM')
+    } catch {
+      /* already gone */
+    }
+    try {
+      execFileSync('/usr/bin/pkill', ['-TERM', '-f', JARVIS_OBS])
+    } catch {
+      /* not running */
+    }
+    process.exit(0)
+  })
 }

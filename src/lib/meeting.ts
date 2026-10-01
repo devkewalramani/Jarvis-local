@@ -27,6 +27,11 @@ type Setup = {
   title: string | null
   /** Speak the setup prompts? Not when a meeting is under way on speakers. */
   speak: boolean
+  /**
+   * In a call Jarvis joined: the microphone opens only for the wake word
+   * ("Hey Jarvis, agenda: ..."), never on its own to wait for an answer.
+   */
+  wakeOnly?: boolean
 }
 
 type MeetingState = {

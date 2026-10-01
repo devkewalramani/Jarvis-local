@@ -252,7 +252,37 @@ export default function App() {
         : 'Joining as J.A.R.V.I.S., muted, with the agenda timer as my camera. Admit me from the waiting room.',
       headphones,
     )
-    if (useMeeting.getState().phase === 'off') await startMeetingSetup('')
+    void watchCall()
+    if (useMeeting.getState().phase === 'off') await startMeetingSetup('', true)
+  }
+
+  /**
+   * While Jarvis is in a call: when it ends (the host ended it, Jarvis was
+   * removed, or the window closed), end meeting mode too, or drop a setup that
+   * never got its agenda.
+   */
+  const watching = useRef(false)
+  const watchCall = async () => {
+    if (watching.current) return
+    watching.current = true
+    try {
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 3000))
+        const st = await bridgeJson<{ state: string }>('/zoom/status')
+        if (!st || !['ended', 'left', 'invalid', 'error', 'signin', 'idle'].includes(st.state)) continue
+        const m = useMeeting.getState()
+        if (st.state === 'left') return // left on the user's word; leaveZoom handled it
+        if (m.phase === 'running') await finishMeeting()
+        else if (m.phase === 'setup') {
+          cancelSetup()
+          await reply(st.state === 'ended' ? 'The call has ended. Meeting mode off.' : 'Not in the call. Meeting mode off.', false)
+          goDormant()
+        }
+        return
+      }
+    } finally {
+      watching.current = false
+    }
   }
 
   /** "Leave the meeting", by voice or ⌃⌥⌘L: close Jarvis's Zoom window, stop the camera, end meeting mode. */
@@ -267,7 +297,7 @@ export default function App() {
   }
 
   /** "Start meeting mode", by voice or shortcut. Never from the calendar on its own. */
-  const startMeetingSetup = async (said: string) => {
+  const startMeetingSetup = async (said: string, inCall = false) => {
     const [now, out] = await Promise.all([
       bridgeJson<MeetingNow>('/meeting/now'),
       bridgeJson<{ headphones: boolean }>('/audio-output'),
@@ -279,17 +309,25 @@ export default function App() {
     if (spoken.length) return runMeeting(spoken, title, headphones)
     // A meeting already under way on speakers: show the prompts, don't say them.
     const speak = headphones || !now?.event
+    // In a call Jarvis joined, answers come with the wake word, whenever the
+    // user is ready: the microphone never opens on its own during a call.
+    const hey = inCall ? 'Hey Jarvis, ' : ''
     if (now?.event && now.agenda.length) {
-      beginSetup({ step: 'confirm', offered: now.agenda, title, speak }, headphones)
-      await reply(`You're in ${title}. The invite's agenda is ${describeAgenda(now.agenda)}. Shall I use it?`, speak)
-    } else {
-      beginSetup({ step: 'ask', offered: [], title, speak }, headphones)
+      beginSetup({ step: 'confirm', offered: now.agenda, title, speak, wakeOnly: inCall }, headphones)
       await reply(
-        `${title ? `You're in ${title}. ` : ''}What's the agenda? Say each item and its minutes, like pricing fifteen, timeline ten.`,
+        `You're in ${title}. The invite's agenda is ${describeAgenda(now.agenda)}. ` +
+          (inCall ? 'Say "Hey Jarvis, use it", or give another agenda.' : 'Shall I use it?'),
+        speak,
+      )
+    } else {
+      beginSetup({ step: 'ask', offered: [], title, speak, wakeOnly: inCall }, headphones)
+      await reply(
+        `${title ? `You're in ${title}. ` : ''}What's the agenda? Say "${hey}agenda: pricing fifteen, timeline ten".`,
         speak,
       )
     }
-    listen(AWAIT_SPEECH_MS)
+    if (inCall) goDormant()
+    else listen(AWAIT_SPEECH_MS)
   }
 
   /** Meeting mode's part of a turn. True when it handled what was said. */
@@ -314,13 +352,14 @@ export default function App() {
     }
     if (m.phase === 'setup' && m.setup) {
       const setup = m.setup
+      const next = (ms: number) => (setup.wakeOnly ? goDormant() : listen(ms))
       if (CANCEL.test(said)) {
         cancelSetup()
         await reply('Meeting mode cancelled.', setup.speak)
-        listen(FOLLOW_UP_MS)
+        next(FOLLOW_UP_MS)
         return true
       }
-      if (setup.step === 'confirm' && YES.test(said)) {
+      if (setup.step === 'confirm' && (YES.test(said) || /\buse it\b/i.test(said))) {
         await runMeeting(setup.offered, setup.title, m.headphones)
         return true
       }
@@ -335,7 +374,7 @@ export default function App() {
       } else {
         await reply("I didn't catch an agenda. Each item and its minutes, like pricing fifteen, timeline ten.", setup.speak)
       }
-      listen(AWAIT_SPEECH_MS)
+      next(AWAIT_SPEECH_MS)
       return true
     }
     if (ZOOM_LEAVE.test(said)) {
