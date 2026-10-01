@@ -79,7 +79,7 @@ const CANCEL = /\b(cancel|never mind|stop meeting mode)\b/i
  * only, so "how much sleep did I get" is a question, not a command.
  */
 const STANDBY = new RegExp(
-  String.raw`^\W*(?:(?:ok(?:ay)?|thanks|thank you|alright|all right|jarvis)[\s,.!]*)*` +
+  String.raw`^\W*(?:(?:ok(?:ay)?|no|nope|no thanks|no thank you|thanks|thank you|alright|all right|jarvis)[\s,.!]*)*` +
     String.raw`(?:(?:go\s+)?(?:back\s+)?(?:to\s+)?(?:standby|stand by|sleep)|stop listening|that'?s all|that will be all|that'?ll be all|dismissed|you'?re dismissed|you can go|be quiet|quiet|go quiet|never ?mind)` +
     String.raw`(?:[\s,.!]*(?:now|please|thanks|thank you|jarvis|sir))*\W*$`,
   'i',
