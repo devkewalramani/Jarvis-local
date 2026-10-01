@@ -56,32 +56,81 @@ function thunderbirdCall(name, args, timeoutMs = 15000) {
   })
 }
 
+/** Small words kept lower case when an ALL CAPS title is put in title case. */
+const SMALL = new Set(['a', 'an', 'and', 'as', 'at', 'by', 'for', 'from', 'in', 'of', 'on', 'or', 'the', 'to', 'vs', 'with'])
+
+/** "CALL TO ORDER AND WELCOME" -> "Call to Order and Welcome"; short all-caps words (AI, HR) stay. */
+function titleCase(title) {
+  if (!/[A-Z]/.test(title) || title !== title.toUpperCase()) return title
+  return title
+    .toLowerCase()
+    .split(' ')
+    .map((w, i) => {
+      if (i > 0 && SMALL.has(w)) return w
+      if (/^[a-z]{1,2}$/.test(w)) return w.toUpperCase()
+      return w.charAt(0).toUpperCase() + w.slice(1)
+    })
+    .join(' ')
+}
+
+/** "10 MINS", "1 hr", "1.5 hours", "1 hr 15 min" -> minutes; null if it isn't a duration. */
+function minutesIn(text) {
+  const m = /^\s*(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b)?\s*(?:(\d{1,3})\s*(?:m|min|mins|minute|minutes)\b)?\s*$/i.exec(text)
+  if (!m || (!m[1] && !m[2])) return null
+  const total = Math.round((Number(m[1]) || 0) * 60 + (Number(m[2]) || 0))
+  return total > 0 && total <= 480 ? total : null
+}
+
 /**
- * An agenda from an invite description: every line that carries a duration
- * ("Pricing - 15 min", "1. Timeline (10m)", "Next steps: 5 minutes",
- * "15 min Pricing") becomes an item. Lines without a duration are ignored.
+ * A normal agenda from an invite's description, with no special format: an
+ * item is any line with a duration, in parentheses ("Welcome (10 min)",
+ * "(1 hr)") or after a separator at the end ("WELCOME | 10 MINS",
+ * "Pricing - 15 min"), optionally led by a time ("9:10") and/or a numeral
+ * ("II.", "2."). Lines without a duration (detail bullets, materials, dial-in
+ * text) are ignored, and an item listed twice (a summary and then the detail)
+ * counts once.
  */
 export function agendaFromDescription(text) {
-  const items = []
   const plain = String(text ?? '')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li)>/gi, '\n')
+    .replace(/<\/(p|div|li|h\d|tr)>/gi, '\n')
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
+  const DURATION = String.raw`(?:\d+(?:\.\d+)?\s*(?:h|hr|hrs|hour|hours)\b\s*)?(?:\d{1,3}\s*(?:m|min|mins|minute|minutes)\b)?`
+  const inParens = new RegExp(String.raw`\(\s*(${DURATION})\s*\)`, 'i')
+  const atEnd = new RegExp(String.raw`(?:\||[–—:,]|\s-)\s*(${DURATION})\s*\.?\s*$`, 'i')
+  const items = []
+  const seen = new Set()
   for (const raw of plain.split(/\r?\n/)) {
-    const m = /(\d{1,3})\s*(?:m|min|mins|minute|minutes)\b/i.exec(raw)
-    if (!m) continue
-    const title = raw
-      .replace(m[0], ' ')
-      .replace(/^\s*(?:[-*•·]|\d+[.)])\s*/, '')
-      .replace(/[()[\]:–—-]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-    const minutes = Number(m[1])
-    if (title && minutes > 0 && minutes <= 240) items.push({ title, minutes })
+    const line = raw.trim()
+    const m = inParens.exec(line) ?? atEnd.exec(line)
+    const minutes = m && minutesIn(m[1])
+    if (!minutes) continue
+    const title = titleCase(
+      line
+        .replace(m[0], ' ')
+        // a leading time, "9:10", "9:10 am", "9:10-9:20", "9:10 – 9:20 AM"
+        .replace(/^\s*\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?(?:\s*[-–—]\s*\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?)?\s*[-–—:|]?\s*/i, '')
+        // a leading bullet or numeral, "•", "-", "2.", "2)", "II.", "iv)"
+        .replace(/^\s*(?:[-*•·◦]\s*)?(?:(?:\d{1,2}|[ivxlc]{1,6})[.)]\s+)?/i, '')
+        .replace(/[\s|–—:,-]+$/, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    const key = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    if (!title || seen.has(key)) continue
+    seen.add(key)
+    items.push({ title, minutes })
   }
   return items
+}
+
+/** The agenda plus "Buffer" for any time the meeting has left over. */
+export function withBuffer(items, start, end) {
+  const length = Math.round((new Date(end) - new Date(start)) / 60000)
+  const total = items.reduce((t, i) => t + i.minutes, 0)
+  return items.length && length > total ? [...items, { title: 'Buffer', minutes: length - total }] : items
 }
 
 /** The timed calendar event happening right now, if any, with its invite agenda. */
@@ -97,7 +146,7 @@ export async function meetingNow() {
   if (!current) return { event: null, agenda: [] }
   return {
     event: { title: String(current.title ?? '').trim(), start: current.startDate, end: current.endDate },
-    agenda: agendaFromDescription(current.description),
+    agenda: withBuffer(agendaFromDescription(current.description), current.startDate, current.endDate),
   }
 }
 

@@ -107,10 +107,16 @@ window:
 say "Hey Jarvis, start meeting mode" or press ⌃⌥⌘M. It never starts from the
 calendar on its own.
 
-* **Agenda.** If a calendar event is happening now and its invite lists timed
-  items ("Pricing, 15 min"), Jarvis offers that agenda. Otherwise he asks for
-  items and minutes, or takes them with the command: "start meeting mode,
-  agenda: pricing 15, timeline 10, next steps 5".
+* **Agenda.** If a calendar event is happening now and its description holds a
+  normal agenda, Jarvis offers it. An item is any line with a duration, in
+  parentheses ("Welcome (10 min)", "(1 hr)") or after a separator
+  ("II. PRICING | 20 MINS", "Pricing - 15 min"), optionally led by a time
+  ("9:10") or a numeral ("2.", "II."); the title is kept without them. Lines
+  without a duration are ignored, an item listed twice (summary and detail)
+  counts once, and time left over in the meeting is added as "Buffer". An
+  attached file is not read. Without a timed agenda he asks for items and
+  minutes, or takes them with the command: "start meeting mode, agenda:
+  pricing 15, timeline 10, next steps 5".
 * **On screen.** The current item's countdown sits in the middle of the
   reactor, with the current item, the next item and the total time left below
   the rings. The ring pulses amber with two minutes left on an item and red at
