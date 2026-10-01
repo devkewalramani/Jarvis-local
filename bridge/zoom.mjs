@@ -23,6 +23,8 @@
  *    BlackHole too. Nothing feeds BlackHole except play-to-device, and only for
  *    the introduction, so the room and your microphone can never reach the call
  *    through Jarvis.
+ *  - Speakers: the page sees only the default output and cannot switch output
+ *    devices (setSinkId), so the call's sound can never go into BlackHole.
  *  - Zoom audio is joined muted and kept muted: the watcher mutes it again
  *    within two seconds if it is ever found unmuted outside the introduction.
  */
@@ -121,9 +123,24 @@ const MEDIA_GUARD = `(() => {
     mic = all.find((d) => d.kind === 'audioinput' && MIC.test(d.label))?.deviceId ?? mic
     return all
   }
+  // Speakers: only the system default, never BlackHole, so the call's own
+  // sound can never be written into Jarvis's microphone.
   md.enumerateDevices = async () =>
     (await find()).filter((d) =>
-      d.kind === 'videoinput' ? CAMERA.test(d.label) : d.kind === 'audioinput' ? MIC.test(d.label) : true)
+      d.kind === 'videoinput' ? CAMERA.test(d.label)
+        : d.kind === 'audioinput' ? MIC.test(d.label)
+        : d.deviceId === 'default')
+  const onlyDefault = (proto) => {
+    if (!proto || !proto.setSinkId) return
+    const set = proto.setSinkId
+    proto.setSinkId = function (id) {
+      if (id && id !== 'default' && typeof id !== 'object')
+        return Promise.reject(new DOMException('Jarvis plays only to the default output', 'NotAllowedError'))
+      return set.call(this, id)
+    }
+  }
+  onlyDefault(window.HTMLMediaElement && HTMLMediaElement.prototype)
+  onlyDefault(window.AudioContext && AudioContext.prototype)
   md.getUserMedia = async (c = {}) => {
     if (c.audio) {
       if (!mic) await find()
@@ -283,7 +300,23 @@ class Pipe {
   }
 }
 
+/**
+ * The OBS process Jarvis launched. Tracked by PID because macOS does not
+ * always put the launch arguments on the process's command line (seen when a
+ * previous OBS was still exiting), so matching by arguments alone can miss it.
+ */
+let obsPid = null
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 const obsRunning = async () => {
+  if (obsPid && alive(obsPid)) return true
   try {
     await run('/usr/bin/pgrep', ['-f', JARVIS_OBS])
     return true
@@ -301,7 +334,14 @@ export async function startCamera() {
       if (f.startsWith('run_')) await rm(join(OBS_SENTINELS, f), { force: true })
     }
   }
-  await run('/usr/bin/open', ['-g', '-a', 'OBS', '--args', ...OBS_ARGS])
+  // -n: always a fresh instance, so the arguments reach it; -g: in the background.
+  await run('/usr/bin/open', ['-g', '-n', '-a', 'OBS', '--args', ...OBS_ARGS])
+  for (let i = 0; i < 20 && !obsPid; i++) {
+    const { stdout } = await run('/usr/bin/pgrep', ['-n', '-f', '^/Applications/OBS.app/Contents/MacOS/OBS( |$)']).catch(() => ({ stdout: '' }))
+    obsPid = Number(stdout.trim()) || null
+    if (!obsPid) await new Promise((r) => setTimeout(r, 250))
+  }
+  console.log(`[zoom] camera: OBS started (pid ${obsPid ?? 'unknown'})`)
 }
 
 /**
@@ -309,10 +349,20 @@ export async function startCamera() {
  * confirmation is off), then SIGKILL if it is still there after five seconds.
  */
 export async function stopCamera() {
-  const signal = (sig) => run('/usr/bin/pkill', [sig, '-f', JARVIS_OBS]).catch(() => {})
-  await signal('-TERM')
+  const signal = async (sig) => {
+    if (obsPid && alive(obsPid)) {
+      try {
+        process.kill(obsPid, sig)
+      } catch {
+        /* gone */
+      }
+    }
+    await run('/usr/bin/pkill', [sig === 'SIGKILL' ? '-KILL' : '-TERM', '-f', JARVIS_OBS]).catch(() => {})
+  }
+  await signal('SIGTERM')
   for (let i = 0; i < 10 && (await obsRunning()); i++) await new Promise((r) => setTimeout(r, 500))
-  if (await obsRunning()) await signal('-KILL')
+  if (await obsRunning()) await signal('SIGKILL')
+  obsPid = null
 }
 
 /** What the Zoom page can see: every media device it is offered, by kind and label. */
@@ -543,6 +593,11 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
       session?.child.kill('SIGTERM')
     } catch {
       /* already gone */
+    }
+    try {
+      if (obsPid) process.kill(obsPid, 'SIGTERM')
+    } catch {
+      /* gone */
     }
     try {
       execFileSync('/usr/bin/pkill', ['-TERM', '-f', JARVIS_OBS])
