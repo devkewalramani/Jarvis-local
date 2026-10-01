@@ -36,12 +36,18 @@ export function parseAgenda(text: string): AgendaItem[] {
     .replace(/^.*?\bagenda\b\s*(?:is|:)?\s*/i, '')
     .replace(/[.!?]+$/, '')
   const items: AgendaItem[] = []
-  for (const chunk of body.split(/\s*(?:[,;]|\band then\b|\bthen\b|\band\b)\s*/i)) {
-    const m =
-      /^(.*?)\s*(?:for\s+)?(\d{1,3})\s*(?:m|min|mins|minutes?)?$/i.exec(chunk.trim()) ??
-      /^(\d{1,3})\s*(?:m|min|mins|minutes?)?\s+(?:of\s+|on\s+)?(.+)$/i.exec(chunk.trim())
-    if (!m) continue
-    const [title, minutes] = /^\d/.test(m[1]) ? [m[2], Number(m[1])] : [m[1], Number(m[2])]
+  // Speech-to-text often drops the commas: "intro 2 wrap up 3" is two items.
+  // Each title-then-number pair becomes its own chunk.
+  const chunks = body
+    .split(/\s*(?:[,;]|\band then\b|\bthen\b|\band\b)\s*/i)
+    .flatMap((c) => c.match(/\S.*?\s\d{1,3}\s*(?:minutes?|mins?|m)?(?=\s|$)/gi) ?? [c])
+  for (const chunk of chunks) {
+    // "pricing 15" (title first), else "15 minutes of pricing" (minutes first).
+    const titleFirst = /^(.*?)\s*(?:for\s+)?(\d{1,3})\s*(?:m|min|mins|minutes?)?$/i.exec(chunk.trim())
+    const minutesFirst = /^(\d{1,3})\s*(?:m|min|mins|minutes?)?\s+(?:of\s+|on\s+)?(.+)$/i.exec(chunk.trim())
+    const pick = titleFirst && titleFirst[1] && !/^\d{1,3}$/.test(titleFirst[1]) ? titleFirst : null
+    if (!pick && !minutesFirst) continue
+    const [title, minutes] = pick ? [pick[1], Number(pick[2])] : [minutesFirst![2], Number(minutesFirst![1])]
     const clean = title.replace(/^(?:item|then|and)\s+/i, '').replace(/\s+/g, ' ').trim()
     if (clean && minutes > 0 && minutes <= 240) items.push({ title: clean, minutes })
   }
